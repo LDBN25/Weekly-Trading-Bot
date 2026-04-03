@@ -1,6 +1,8 @@
 import os
 import json
 import math
+import time
+import logging
 from dataclasses import dataclass
 from typing import Dict, List, Optional
 
@@ -45,12 +47,29 @@ SLIPPAGE_PCT = 0.0005
 MIN_HISTORY_WEEKS = 40
 LOOKBACK_DAYS = 450
 STATE_FILE = "alpaca_weekly_state.json"
+LOG_FILE = "alpaca_weekly_bot.log"
 TIMEZONE = ZoneInfo("America/New_York")
-
-# Si True, solo abre nuevas posiciones el lunes (o primer día hábil de la semana)
+CHECK_INTERVAL_SECONDS = int(os.getenv("CHECK_INTERVAL_SECONDS", "1800"))  # 30 min
 ONLY_OPEN_ON_WEEK_START = True
 
+# =========================
+# LOGGING
+# =========================
+def setup_logging() -> None:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s | %(levelname)s | %(message)s",
+        handlers=[
+            logging.StreamHandler(),
+            logging.FileHandler(LOG_FILE, encoding="utf-8"),
+        ],
+        force=True,
+    )
 
+
+# =========================
+# MODEL
+# =========================
 @dataclass
 class SignalRow:
     symbol: str
@@ -99,7 +118,7 @@ def fetch_daily_bars(data_client: StockHistoricalDataClient, symbols: List[str])
         start=start.to_pydatetime(),
         end=end.to_pydatetime(),
         adjustment="raw",
-        feed="iex",  # Paper-only account recibe IEX
+        feed="iex",
     )
 
     bars = data_client.get_stock_bars(request)
@@ -261,8 +280,6 @@ def submit_sell(trading: TradingClient, symbol: str, qty: float) -> None:
 # BOT LOGIC
 # =========================
 def is_week_start_trading_day(now_ny: datetime) -> bool:
-    # Simple: lunes = día de nuevas entradas.
-    # Si quieres manejar festivos, puedes afinar esto luego.
     return now_ny.weekday() == 0
 
 
@@ -279,29 +296,24 @@ def manage_exits(trading: TradingClient, weekly_map: Dict[str, pd.DataFrame], po
         weekly = weekly_map[symbol]
         row = weekly.iloc[-1]
         qty = float(pos["qty"])
-        avg_entry = float(pos["avg_entry_price"])
         current_stop = float(stops.get(symbol, 0))
 
-        # Actualiza stop estructural a la caja previa más reciente si es más alto
         latest_box_stop = float(row["box_low_prev"]) if not math.isnan(float(row["box_low_prev"])) else current_stop
         if latest_box_stop > current_stop:
             current_stop = latest_box_stop
             stops[symbol] = current_stop
 
-        # Salida por EMA10 semanal cerrada
         if bool(row["exit_signal"]):
-            print(f"[EXIT EMA10] {symbol} qty={qty}")
+            logging.info(f"[EXIT EMA10] {symbol} qty={qty}")
             submit_sell(trading, symbol, qty)
             continue
 
-        # Salida por stop usando el close diario más reciente como chequeo simple
         daily_close = float(weekly.iloc[-1]["Close"])
         if current_stop > 0 and daily_close <= current_stop:
-            print(f"[EXIT STOP] {symbol} qty={qty} stop={current_stop:.2f} close={daily_close:.2f}")
+            logging.info(f"[EXIT STOP] {symbol} qty={qty} stop={current_stop:.2f} close={daily_close:.2f}")
             submit_sell(trading, symbol, qty)
             continue
 
-        # Guardar stop si aún no existe
         if symbol not in stops and current_stop > 0:
             stops[symbol] = current_stop
 
@@ -309,18 +321,18 @@ def manage_exits(trading: TradingClient, weekly_map: Dict[str, pd.DataFrame], po
 def open_new_positions(trading: TradingClient, weekly_map: Dict[str, pd.DataFrame], positions_map: Dict[str, dict], state: dict) -> None:
     now_ny = datetime.now(TIMEZONE)
     if ONLY_OPEN_ON_WEEK_START and not is_week_start_trading_day(now_ny):
-        print("[INFO] Hoy no es inicio de semana. No se abren nuevas posiciones.")
+        logging.info("[INFO] Hoy no es inicio de semana. No se abren nuevas posiciones.")
         return
 
     open_order_symbols = get_open_order_symbols(trading)
     slots = MAX_POSITIONS - len(positions_map) - len(open_order_symbols)
     if slots <= 0:
-        print("[INFO] Sin cupos para nuevas posiciones.")
+        logging.info("[INFO] Sin cupos para nuevas posiciones.")
         return
 
     candidates = get_candidates(weekly_map, positions_map, open_order_symbols)[:slots]
     if not candidates:
-        print("[INFO] No hay candidatos nuevos.")
+        logging.info("[INFO] No hay candidatos nuevos.")
         return
 
     equity = get_equity(trading)
@@ -334,10 +346,10 @@ def open_new_positions(trading: TradingClient, weekly_map: Dict[str, pd.DataFram
         risk_budget = equity * RISK_PCT_PER_TRADE
         shares = int(risk_budget // risk_per_share)
         if shares <= 0:
-            print(f"[SKIP] {c.symbol} shares<=0 con riesgo {risk_per_share:.2f}")
+            logging.info(f"[SKIP] {c.symbol} shares<=0 con riesgo {risk_per_share:.2f}")
             continue
 
-        print(f"[BUY] {c.symbol} shares={shares} ref_close={c.entry_ref_close:.2f} stop={c.stop_price:.2f} score={c.score:.2f}")
+        logging.info(f"[BUY] {c.symbol} shares={shares} ref_close={c.entry_ref_close:.2f} stop={c.stop_price:.2f} score={c.score:.2f}")
         submit_buy(trading, c.symbol, shares)
         stops[c.symbol] = c.stop_price
 
@@ -347,26 +359,35 @@ def run_once():
     state = load_state()
 
     account = trading.get_account()
-    print(f"[ACCOUNT] equity={account.equity} cash={account.cash} buying_power={account.buying_power}")
+    logging.info(f"[ACCOUNT] equity={account.equity} cash={account.cash} buying_power={account.buying_power}")
 
     symbols = ACTIVE_UNIVERSE + [BENCHMARK]
     data_map = fetch_daily_bars(data_client, symbols)
     weekly_map, last_completed_week = build_signals(data_map)
-    print(f"[WEEK] última semana completada: {last_completed_week.date()}")
+    logging.info(f"[WEEK] última semana completada: {last_completed_week.date()}")
 
     positions_map = get_positions_map(trading)
-    print(f"[POSITIONS] abiertas={list(positions_map.keys())}")
+    logging.info(f"[POSITIONS] abiertas={list(positions_map.keys())}")
 
     manage_exits(trading, weekly_map, positions_map, state)
-
-    # recargar posiciones después de potenciales órdenes de salida no es inmediato,
-    # así que usamos el mapa actual para el cálculo de cupos.
     open_new_positions(trading, weekly_map, positions_map, state)
 
     state["last_entry_week"] = str(last_completed_week.date())
     save_state(state)
-    print("[DONE] ciclo completado.")
+    logging.info("[DONE] ciclo completado.")
+
+
+def main_loop():
+    setup_logging()
+    logging.info("[BOOT] Bot iniciado.")
+    while True:
+        try:
+            run_once()
+        except Exception as e:
+            logging.exception(f"[FATAL CYCLE ERROR] {e}")
+        logging.info(f"[SLEEP] esperando {CHECK_INTERVAL_SECONDS} segundos...")
+        time.sleep(CHECK_INTERVAL_SECONDS)
 
 
 if __name__ == "__main__":
-    run_once()
+    main_loop()
