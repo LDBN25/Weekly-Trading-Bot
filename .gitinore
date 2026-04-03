@@ -2,3 +2,4 @@ __pycache__/
 *.pyc
 .env
 alpaca_weekly_state.json
+alpaca_weekly_bot.log
