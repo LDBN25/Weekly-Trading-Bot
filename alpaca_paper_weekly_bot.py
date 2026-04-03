@@ -2,16 +2,19 @@ import os
 import json 
 import math 
 import time 
-import logging from dataclasses 
-import dataclass from typing 
-import Dict, List, Optional
+import logging 
+from dataclasses import dataclass 
+from typing import Dict, List, Optional
 
 import numpy as np 
-import pandas as pd from zoneinfo 
-import ZoneInfo from datetime 
-import datetime
+import pandas as pd 
+from zoneinfo import ZoneInfo 
+from datetime import datetime
 
-from alpaca.trading.client import TradingClient from alpaca.trading.requests import MarketOrderRequest, GetOrdersRequest from alpaca.trading.enums import OrderSide, TimeInForce, QueryOrderStatus from alpaca.data.historical.stock import StockHistoricalDataClient from alpaca.data.requests import StockBarsRequest from alpaca.data.timeframe import TimeFrame
+from alpaca.trading.client import TradingClient from alpaca.trading.requests import MarketOrderRequest, GetOrdersRequest 
+from alpaca.trading.enums import OrderSide, TimeInForce, QueryOrderStatus 
+from alpaca.data.historical.stock import StockHistoricalDataClient 
+from alpaca.data.requests import StockBarsRequest from alpaca.data.timeframe import TimeFrame
 
 =========================
 
