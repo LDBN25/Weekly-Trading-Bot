@@ -26,7 +26,7 @@ ALPACA_SECRET_KEY = os.getenv("ALPACA_SECRET_KEY", "")
 PAPER = True
 
 TOP_UNIVERSE = [
-    "NVDA", "AAPL", "MSFT", "AMZN", "GOOGL", "GOOG", "AVGO", "META", "TSLA", "BRK-B",
+    "NVDA", "AAPL", "MSFT", "AMZN", "GOOGL", "GOOG", "AVGO", "META", "TSLA", "BRK.B",
     "WMT", "LLY", "JPM", "XOM", "JNJ", "V", "MA", "COST", "MU", "ORCL",
     "NFLX", "CVX", "ABBV", "PLTR", "BAC", "KO", "UNH", "HD", "CSCO", "PM",
     "IBM", "AMD", "LIN", "GE", "CRM", "MCD", "WFC", "ABT", "INTU", "MS",
