@@ -28,7 +28,7 @@ PAPER = True
 
 TOP_UNIVERSE = [
     "NVDA", "AAPL", "MSFT", "AMZN", "GOOGL", "GOOG", "AVGO", "META", "TSLA",
-    "BRK-B", "WMT", "LLY", "JPM", "XOM", "JNJ", "V", "MA", "COST", "MU", "ORCL",
+    "BRK.B", "WMT", "LLY", "JPM", "XOM", "JNJ", "V", "MA", "COST", "MU", "ORCL",
     "NFLX", "CVX", "ABBV", "PLTR", "BAC", "KO", "UNH", "HD", "CSCO", "PM", "IBM",
     "AMD", "LIN", "GE", "CRM", "MCD", "WFC", "ABT", "INTU", "MS", "PEP", "T",
     "AXP", "ADBE", "DIS", "QCOM", "GS", "MRK", "NOW", "CAT"
