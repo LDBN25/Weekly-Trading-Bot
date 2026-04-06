@@ -343,7 +343,39 @@ def mark_processed(meta: Dict, week_end: pd.Timestamp) -> Dict:
     meta["last_processed_week"] = str(week_end.date())
     meta["updated_at"] = str(now_ny())
     return meta
+    
+def has_meaningful_changes(
+    positions_before: Dict[str, PositionState],
+    positions_after: Dict[str, PositionState],
+) -> bool:
+    before_keys = set(positions_before.keys())
+    after_keys = set(positions_after.keys())
 
+    if before_keys != after_keys:
+        return True
+
+    for symbol in before_keys:
+        b = positions_before[symbol]
+        a = positions_after[symbol]
+
+        if int(b.shares) != int(a.shares):
+            return True
+
+        if float(b.stop_price) != float(a.stop_price):
+            return True
+
+        b_pending = None if b.pending_stop_price is None else float(b.pending_stop_price)
+        a_pending = None if a.pending_stop_price is None else float(a.pending_stop_price)
+        if b_pending != a_pending:
+            return True
+
+        if bool(b.break_even_armed) != bool(a.break_even_armed):
+            return True
+
+        if bool(b.partial_taken) != bool(a.partial_taken):
+            return True
+
+    return False
 
 def reconcile_state_with_broker(trading: TradingClient, positions: Dict[str, PositionState]) -> Dict[str, PositionState]:
     reconciled = {}
@@ -355,7 +387,7 @@ def reconcile_state_with_broker(trading: TradingClient, positions: Dict[str, Pos
         pos.shares = int(math.floor(live_qty))
         reconciled[symbol] = pos
     return reconciled
-
+    
 
 def main() -> None:
     setup_logging()
@@ -380,12 +412,20 @@ def main() -> None:
     positions = reconcile_state_with_broker(trading, positions)
     logging.info("[STATE] posiciones actuales=%s", list(positions.keys()))
 
+    positions_before = {sym: PositionState(**asdict(pos)) for sym, pos in positions.items()}
+
     positions = manage_open_positions(trading, strategy, weekly_map, positions, week_end)
     positions = open_new_positions(trading, strategy, daily_map, weekly_map, positions, week_end)
 
-    meta = mark_processed(meta, week_end)
-    save_state(positions, meta)
-    logging.info("[DONE] posiciones finales=%s", list(positions.keys()))
+    changed = has_meaningful_changes(positions_before, positions)
+
+    if changed:
+        meta = mark_processed(meta, week_end)
+        save_state(positions, meta)
+        logging.info("[DONE] cambios_detectados=True posiciones finales=%s", list(positions.keys()))
+    else:
+        logging.info("[DONE] cambios_detectados=False posiciones finales=%s", list(positions.keys()))
+        logging.info("[RETRY] No se marca la semana como procesada. Puede reintentarse en la siguiente ventana del lunes.")
 
 
 if __name__ == "__main__":
