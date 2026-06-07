@@ -20,6 +20,7 @@ from alpaca.trading.enums import OrderSide, TimeInForce
 from alpaca.trading.requests import MarketOrderRequest
 
 from strategy_weekly_bot_ready import StrategyConfig, PositionState, WeeklyTrendStrategy
+from trade_tracker import record_trade, send_weekly_summary
 
 
 NY = ZoneInfo("America/New_York")
@@ -240,8 +241,9 @@ def manage_open_positions(
     weekly_map: Dict[str, pd.DataFrame],
     positions: Dict[str, PositionState],
     week_end: pd.Timestamp,
-) -> Dict[str, PositionState]:
+) -> Tuple[Dict[str, PositionState], List[Dict]]:
     updated = dict(positions)
+    exits_log: List[Dict] = []
 
     for symbol in list(updated.keys()):
         if symbol not in weekly_map or week_end not in weekly_map[symbol].index:
@@ -263,6 +265,29 @@ def manage_open_positions(
             live_qty = get_latest_open_position_qty(trading, symbol)
             qty = int(math.floor(live_qty if live_qty is not None else pos.shares))
             submit_market_order(trading, symbol, qty, OrderSide.SELL)
+            reason = decision.get("reason", "exit_all")
+            exit_price = pos.stop_price if reason == "stop" else float(row["Adj Close"])
+            record_trade(
+                symbol=symbol,
+                entry_date=str(pos.entry_date)[:10],
+                entry_price=pos.entry_price,
+                initial_shares=pos.initial_shares,
+                exit_date=str(week_end.date()),
+                exit_price=exit_price,
+                exit_shares=qty,
+                exit_reason=reason,
+                risk_per_share=pos.risk_per_share,
+                is_partial=False,
+            )
+            exits_log.append({
+                "symbol": symbol,
+                "entry_price": pos.entry_price,
+                "exit_price": exit_price,
+                "exit_reason": reason,
+                "gross_pnl": round((exit_price - pos.entry_price) * qty, 2),
+                "r_multiple": round((exit_price - pos.entry_price) / pos.risk_per_share, 3),
+                "is_partial": False,
+            })
             del updated[symbol]
             continue
 
@@ -274,10 +299,32 @@ def manage_open_positions(
                 submit_market_order(trading, symbol, qty, OrderSide.SELL)
                 pos.shares = max(0, pos.shares - qty)
                 logging.info("[PARTIAL] %s qty=%s remaining_model_qty=%s", symbol, qty, pos.shares)
+                exit_price = pos.target_price(strategy.cfg.partial_r)
+                record_trade(
+                    symbol=symbol,
+                    entry_date=str(pos.entry_date)[:10],
+                    entry_price=pos.entry_price,
+                    initial_shares=pos.initial_shares,
+                    exit_date=str(week_end.date()),
+                    exit_price=exit_price,
+                    exit_shares=qty,
+                    exit_reason=decision.get("reason", "partial"),
+                    risk_per_share=pos.risk_per_share,
+                    is_partial=True,
+                )
+                exits_log.append({
+                    "symbol": symbol,
+                    "entry_price": pos.entry_price,
+                    "exit_price": exit_price,
+                    "exit_reason": decision.get("reason", "partial"),
+                    "gross_pnl": round((exit_price - pos.entry_price) * qty, 2),
+                    "r_multiple": round((exit_price - pos.entry_price) / pos.risk_per_share, 3),
+                    "is_partial": True,
+                })
 
         updated[symbol] = strategy.apply_week_transition(pos, decision)
 
-    return updated
+    return updated, exits_log
 
 
 def open_new_positions(
@@ -287,16 +334,17 @@ def open_new_positions(
     weekly_map: Dict[str, pd.DataFrame],
     positions: Dict[str, PositionState],
     week_end: pd.Timestamp,
-) -> Dict[str, PositionState]:
+) -> Tuple[Dict[str, PositionState], List[Dict]]:
     if not ALLOW_NEW_ENTRIES:
-        return positions
+        return positions, []
 
     updated = dict(positions)
+    entries_log: List[Dict] = []
     equity, cash = get_account_snapshot(trading)
     slots = max(0, strategy.cfg.max_positions - len(updated))
     if slots <= 0:
         logging.info("[ENTRY] Sin slots disponibles")
-        return updated
+        return updated, entries_log
 
     candidates = score_candidates(strategy, weekly_map, week_end, set(updated.keys()))[:slots]
     logging.info("[ENTRY] Candidatos=%s", [c[0] for c in candidates])
@@ -315,12 +363,18 @@ def open_new_positions(
         submit_market_order(trading, symbol, int(model_pos.shares), OrderSide.BUY)
         updated[symbol] = model_pos
         cash -= model_pos.shares * entry_price
+        entries_log.append({
+            "symbol": symbol,
+            "entry_price": entry_price,
+            "shares": model_pos.shares,
+            "stop_price": model_pos.stop_price,
+        })
         logging.info(
             "[ENTRY] %s score=%.4f qty=%s entry_est=%.4f stop=%.4f",
             symbol, score, model_pos.shares, entry_price, model_pos.stop_price,
         )
 
-    return updated
+    return updated, entries_log
 
 
 def build_weekly_maps(strategy: WeeklyTrendStrategy, daily_map: Dict[str, pd.DataFrame], benchmark: str) -> Dict[str, pd.DataFrame]:
@@ -379,13 +433,39 @@ def has_meaningful_changes(
 
 def reconcile_state_with_broker(trading: TradingClient, positions: Dict[str, PositionState]) -> Dict[str, PositionState]:
     reconciled = {}
+    removed = []
+
     for symbol, pos in positions.items():
         live_qty = get_latest_open_position_qty(trading, symbol)
         if live_qty is None or live_qty <= 0:
-            logging.warning("[RECON] %s no existe en broker. Se elimina del state.", symbol)
+            logging.warning("[RECON] %s no existe en broker → eliminado del state.", symbol)
+            removed.append(symbol)
             continue
-        pos.shares = int(math.floor(live_qty))
+        live_shares = int(math.floor(live_qty))
+        if live_shares != pos.shares:
+            logging.warning(
+                "[RECON] %s qty_broker=%s != qty_state=%s → state actualizado.",
+                symbol, live_shares, pos.shares,
+            )
+        pos.shares = live_shares
         reconciled[symbol] = pos
+
+    # Detectar posiciones en broker que no están en state
+    try:
+        broker_positions = trading.get_all_positions()
+        for bp in broker_positions:
+            sym = bp.symbol
+            if sym not in reconciled and sym != BENCHMARK:
+                logging.warning(
+                    "[RECON] HUÉRFANO: %s está en broker (qty=%s, market_value=$%s) pero no en state. Revisión manual requerida.",
+                    sym, bp.qty, bp.market_value,
+                )
+    except Exception as exc:
+        logging.warning("[RECON] No se pudieron obtener posiciones del broker: %s", exc)
+
+    if removed:
+        logging.warning("[RECON] Posiciones eliminadas del state: %s", removed)
+    logging.info("[RECON] Reconciliación completa. State válido: %s", list(reconciled.keys()))
     return reconciled
     
 
@@ -414,8 +494,8 @@ def main() -> None:
 
     positions_before = {sym: PositionState(**asdict(pos)) for sym, pos in positions.items()}
 
-    positions = manage_open_positions(trading, strategy, weekly_map, positions, week_end)
-    positions = open_new_positions(trading, strategy, daily_map, weekly_map, positions, week_end)
+    positions, exits_log = manage_open_positions(trading, strategy, weekly_map, positions, week_end)
+    positions, entries_log = open_new_positions(trading, strategy, daily_map, weekly_map, positions, week_end)
 
     changed = has_meaningful_changes(positions_before, positions)
 
@@ -426,6 +506,23 @@ def main() -> None:
     else:
         logging.info("[DONE] cambios_detectados=False posiciones finales=%s", list(positions.keys()))
         logging.info("[RETRY] No se marca la semana como procesada. Puede reintentarse en la siguiente ventana del lunes.")
+
+    try:
+        equity, cash = get_account_snapshot(trading)
+        open_positions_summary = [
+            {"symbol": sym, "shares": pos.shares, "entry_price": pos.entry_price, "stop_price": pos.stop_price}
+            for sym, pos in positions.items()
+        ]
+        send_weekly_summary(
+            week_end=str(week_end.date()),
+            equity=equity,
+            cash=cash,
+            exits=exits_log,
+            entries=entries_log,
+            open_positions=open_positions_summary,
+        )
+    except Exception as exc:
+        logging.warning("[NOTIFY] Error al enviar resumen semanal: %s", exc)
 
 
 if __name__ == "__main__":
