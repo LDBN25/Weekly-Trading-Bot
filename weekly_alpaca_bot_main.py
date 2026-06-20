@@ -16,8 +16,8 @@ from alpaca.data.historical.stock import StockHistoricalDataClient
 from alpaca.data.requests import StockBarsRequest
 from alpaca.data.timeframe import TimeFrame
 from alpaca.trading.client import TradingClient
-from alpaca.trading.enums import OrderSide, TimeInForce
-from alpaca.trading.requests import MarketOrderRequest
+from alpaca.trading.enums import OrderSide, QueryOrderStatus, TimeInForce
+from alpaca.trading.requests import GetOrdersRequest, MarketOrderRequest
 
 from strategy_weekly_bot_ready import StrategyConfig, PositionState, WeeklyTrendStrategy
 from trade_tracker import record_trade, send_weekly_summary
@@ -35,7 +35,7 @@ MIN_PRICE = float(os.getenv("MIN_PRICE", "5"))
 RUN_WEEKDAY_ONLY = os.getenv("RUN_WEEKDAY_ONLY", "0") == "1"
 ALLOW_NEW_ENTRIES = os.getenv("ALLOW_NEW_ENTRIES", "1") == "1"
 ALLOW_PARTIAL_EXITS = os.getenv("ALLOW_PARTIAL_EXITS", "1") == "1"
-DRY_RUN = os.getenv("DRY_RUN", "1") == "1"
+DRY_RUN = os.getenv("DRY_RUN", "0") == "1"
 
 
 def setup_logging() -> None:
@@ -190,6 +190,19 @@ def get_account_snapshot(trading: TradingClient) -> Tuple[float, float]:
     return equity, cash
 
 
+def get_pending_order_symbols(trading: TradingClient) -> set:
+    try:
+        req = GetOrdersRequest(status=QueryOrderStatus.OPEN)
+        orders = trading.get_orders(filter=req)
+        symbols = {o.symbol for o in orders}
+        if symbols:
+            logging.info("[ENTRY] Órdenes pendientes en broker: %s", symbols)
+        return symbols
+    except Exception as exc:
+        logging.warning("[ENTRY] No se pudieron obtener órdenes pendientes: %s", exc)
+        return set()
+
+
 def get_latest_open_position_qty(trading: TradingClient, symbol: str) -> Optional[float]:
     try:
         p = trading.get_open_position(symbol)
@@ -299,7 +312,7 @@ def manage_open_positions(
                 submit_market_order(trading, symbol, qty, OrderSide.SELL)
                 pos.shares = max(0, pos.shares - qty)
                 logging.info("[PARTIAL] %s qty=%s remaining_model_qty=%s", symbol, qty, pos.shares)
-                exit_price = pos.target_price(strategy.cfg.partial_r)
+                exit_price = float(row["Adj Close"])
                 record_trade(
                     symbol=symbol,
                     entry_date=str(pos.entry_date)[:10],
@@ -346,7 +359,9 @@ def open_new_positions(
         logging.info("[ENTRY] Sin slots disponibles")
         return updated, entries_log
 
-    candidates = score_candidates(strategy, weekly_map, week_end, set(updated.keys()))[:slots]
+    pending_symbols = get_pending_order_symbols(trading)
+    excluded = set(updated.keys()) | pending_symbols
+    candidates = score_candidates(strategy, weekly_map, week_end, excluded)[:slots]
     logging.info("[ENTRY] Candidatos=%s", [c[0] for c in candidates])
 
     for symbol, score, row in candidates:
@@ -498,14 +513,13 @@ def main() -> None:
     positions, entries_log = open_new_positions(trading, strategy, daily_map, weekly_map, positions, week_end)
 
     changed = has_meaningful_changes(positions_before, positions)
+    meta = mark_processed(meta, week_end)
+    save_state(positions, meta)
 
     if changed:
-        meta = mark_processed(meta, week_end)
-        save_state(positions, meta)
         logging.info("[DONE] cambios_detectados=True posiciones finales=%s", list(positions.keys()))
     else:
-        logging.info("[DONE] cambios_detectados=False posiciones finales=%s", list(positions.keys()))
-        logging.info("[RETRY] No se marca la semana como procesada. Puede reintentarse en la siguiente ventana del lunes.")
+        logging.info("[DONE] cambios_detectados=False (sin trades esta semana) posiciones finales=%s", list(positions.keys()))
 
     try:
         equity, cash = get_account_snapshot(trading)
