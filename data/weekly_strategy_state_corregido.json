@@ -1,0 +1,178 @@
+{
+  "positions": {
+    "AAPL": {
+      "symbol": "AAPL",
+      "entry_date": "2026-05-01 00:00:00",
+      "entry_price": 276.25,
+      "shares": 45,
+      "initial_shares": 45,
+      "stop_price": 287.38,
+      "initial_stop_price": 243.0,
+      "risk_per_share": 33.25,
+      "break_even_armed": true,
+      "partial_taken": false,
+      "pending_stop_price": null,
+      "notes": {
+        "reconstruido": true,
+        "trailing_calculado": 287.38
+      }
+    },
+    "AMD": {
+      "symbol": "AMD",
+      "entry_date": "2026-05-01 00:00:00",
+      "entry_price": 354.583,
+      "shares": 10,
+      "initial_shares": 10,
+      "stop_price": 437.71,
+      "initial_stop_price": 215.47,
+      "risk_per_share": 139.113,
+      "break_even_armed": true,
+      "partial_taken": false,
+      "pending_stop_price": null,
+      "notes": {
+        "reconstruido": true,
+        "trailing_calculado": 437.71
+      }
+    },
+    "BAC": {
+      "symbol": "BAC",
+      "entry_date": "2026-06-06 00:00:00",
+      "entry_price": 53.98541,
+      "shares": 183,
+      "initial_shares": 183,
+      "stop_price": 53.575,
+      "initial_stop_price": 49.05,
+      "risk_per_share": 4.9354,
+      "break_even_armed": false,
+      "partial_taken": false,
+      "pending_stop_price": null,
+      "notes": {
+        "reconstruido": true,
+        "trailing_calculado": 53.575
+      }
+    },
+    "CSCO": {
+      "symbol": "CSCO",
+      "entry_date": "2026-06-06 00:00:00",
+      "entry_price": 122.56,
+      "shares": 58,
+      "initial_shares": 58,
+      "stop_price": 116.62,
+      "initial_stop_price": 95.345,
+      "risk_per_share": 27.215,
+      "break_even_armed": false,
+      "partial_taken": false,
+      "pending_stop_price": null,
+      "notes": {
+        "reconstruido": true,
+        "trailing_calculado": 116.62
+      }
+    },
+    "GS": {
+      "symbol": "GS",
+      "entry_date": "2026-06-06 00:00:00",
+      "entry_price": 1051.41,
+      "shares": 11,
+      "initial_shares": 11,
+      "stop_price": 990.0,
+      "initial_stop_price": 960.0,
+      "risk_per_share": 91.41,
+      "break_even_armed": false,
+      "partial_taken": false,
+      "pending_stop_price": null,
+      "notes": {
+        "reconstruido": true,
+        "stop_estimado": true
+      }
+    },
+    "LLY": {
+      "symbol": "LLY",
+      "entry_date": "2026-05-29 00:00:00",
+      "entry_price": 1088.856,
+      "shares": 10,
+      "initial_shares": 10,
+      "stop_price": 1052.54,
+      "initial_stop_price": 1052.54,
+      "risk_per_share": 36.316,
+      "break_even_armed": false,
+      "partial_taken": false,
+      "pending_stop_price": null,
+      "notes": {
+        "reconstruido": true
+      }
+    },
+    "MS": {
+      "symbol": "MS",
+      "entry_date": "2026-06-06 00:00:00",
+      "entry_price": 213.85,
+      "shares": 61,
+      "initial_shares": 61,
+      "stop_price": 205.0,
+      "initial_stop_price": 200.0,
+      "risk_per_share": 13.85,
+      "break_even_armed": false,
+      "partial_taken": false,
+      "pending_stop_price": null,
+      "notes": {
+        "reconstruido": true,
+        "stop_estimado": true
+      }
+    },
+    "MU": {
+      "symbol": "MU",
+      "entry_date": "2026-05-08 00:00:00",
+      "entry_price": 798.475,
+      "shares": 4,
+      "initial_shares": 4,
+      "stop_price": 855.15,
+      "initial_stop_price": 488.435,
+      "risk_per_share": 310.04,
+      "break_even_armed": true,
+      "partial_taken": false,
+      "pending_stop_price": null,
+      "notes": {
+        "reconstruido": true,
+        "trailing_calculado": 855.15
+      }
+    },
+    "QCOM": {
+      "symbol": "QCOM",
+      "entry_date": "2026-05-01 00:00:00",
+      "entry_price": 171.896667,
+      "shares": 27,
+      "initial_shares": 27,
+      "stop_price": 190.145,
+      "initial_stop_price": 149.26,
+      "risk_per_share": 22.6367,
+      "break_even_armed": true,
+      "partial_taken": true,
+      "pending_stop_price": null,
+      "notes": {
+        "reconstruido": true,
+        "trailing_calculado": 190.145
+      }
+    },
+    "UNH": {
+      "symbol": "UNH",
+      "entry_date": "2026-04-25 00:00:00",
+      "entry_price": 352.95,
+      "shares": 15,
+      "initial_shares": 15,
+      "stop_price": 394.45,
+      "initial_stop_price": 255.34,
+      "risk_per_share": 97.61,
+      "break_even_armed": true,
+      "partial_taken": false,
+      "pending_stop_price": null,
+      "notes": {
+        "reconstruido": true,
+        "trailing_calculado": 394.45
+      }
+    }
+  },
+  "meta": {
+    "last_processed_week": "2026-06-19",
+    "updated_at": "2026-06-20 12:04:44.902680-04:00",
+    "reconstruido_manualmente": true
+  }
+}
