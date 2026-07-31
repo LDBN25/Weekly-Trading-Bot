@@ -9,6 +9,27 @@ import numpy as np
 
 TrailMode = Literal["prior_week_low", "prior_2w_low"]
 
+# Los semiconductores van aparte del resto de tecnología: se mueven juntos y
+# tratarlos como riesgos independientes subestima la concentración.
+SECTOR_MAP: Dict[str, str] = {
+    "NVDA": "semis", "MU": "semis", "AMD": "semis", "QCOM": "semis",
+    "AAPL": "tech", "MSFT": "tech", "ORCL": "tech", "PLTR": "tech",
+    "CSCO": "tech", "IBM": "tech", "ADBE": "tech", "NOW": "tech",
+    "GOOGL": "comm", "GOOG": "comm", "META": "comm", "NFLX": "comm",
+    "DIS": "comm", "T": "comm",
+    "AMZN": "cons_disc", "TSLA": "cons_disc", "HD": "cons_disc", "MCD": "cons_disc",
+    "WMT": "cons_staples", "COST": "cons_staples", "KO": "cons_staples",
+    "PM": "cons_staples", "PEP": "cons_staples",
+    "BRK.B": "financials", "JPM": "financials", "V": "financials", "MA": "financials",
+    "BAC": "financials", "WFC": "financials", "MS": "financials", "GS": "financials",
+    "AXP": "financials",
+    "LLY": "health", "JNJ": "health", "ABBV": "health", "UNH": "health",
+    "ABT": "health", "MRK": "health",
+    "XOM": "energy", "CVX": "energy",
+    "LIN": "materials",
+    "GE": "industrials", "CAT": "industrials",
+}
+
 
 @dataclass
 class StrategyConfig:
@@ -24,6 +45,19 @@ class StrategyConfig:
     risk_pct_per_trade: float = 0.02
     max_positions: int = 10
     min_history_weeks: int = 40
+    # Normalización del stop. Ambas apagadas por defecto: cambian el tamaño de
+    # las posiciones y conviene medirlas antes de activarlas.
+    max_stop_pct: float = 0.0      # tope duro de distancia al stop (0.15 = 15%)
+    atr_stop_mult: float = 0.0     # stop = entrada - mult * ATR semanal
+    atr_weeks: int = 10
+    # Sin filtro de régimen el bot compra rupturas dentro de un mercado bajista.
+    require_bull_regime: bool = True
+    # Apagado: en 2018-2026 el tope no bajó el drawdown (-13.1% con y sin él) y
+    # costó ~75 puntos de retorno. Queda disponible como opt-in.
+    max_per_sector: int = 0
+    score_rs_weight: float = 1.0
+    score_vol_weight: float = 1.0
+    score_z_weeks: int = 52
 
 
 @dataclass
@@ -88,16 +122,70 @@ class WeeklyTrendStrategy:
         w["exit_signal"] = w["Adj Close"] < w["ema_exit"]
         w["prior_week_low"] = w["Low"].shift(1)
         w["prior_2w_low"] = w["Low"].shift(1).rolling(2).min()
+
+        # ATR semanal para dimensionar el stop en unidades de volatilidad.
+        prev_close = w["Adj Close"].shift(1)
+        true_range = pd.concat([
+            w["High"] - w["Low"],
+            (w["High"] - prev_close).abs(),
+            (w["Low"] - prev_close).abs(),
+        ], axis=1).max(axis=1)
+        w["atr"] = true_range.rolling(c.atr_weeks).mean()
+
+        # Los dos términos del score viven en escalas distintas: sumarlos crudos
+        # hacía que el volumen dominara el ranking y la fuerza relativa fuera
+        # decorativa. Se estandarizan contra su propia historia.
+        w["vol_ratio"] = w["Volume"] / w["vol_avg"].replace(0, np.nan)
+        w["rs_mom"] = w["rs_ratio"] / w["rs_ma"].replace(0, np.nan)
+        for src, dst in (("vol_ratio", "vol_z"), ("rs_mom", "rs_z")):
+            mean = w[src].rolling(c.score_z_weeks, min_periods=13).mean()
+            std = w[src].rolling(c.score_z_weeks, min_periods=13).std()
+            w[dst] = ((w[src] - mean) / std.replace(0, np.nan)).fillna(0.0)
         return w
 
     def score_candidate(self, row: pd.Series) -> float:
-        vol_avg = max(float(row.get("vol_avg", 0.0) or 0.0), 1.0)
-        rs_ma = max(float(row.get("rs_ma", 0.0) or 0.0), 1e-9)
-        return float(row["rs_ratio"] / rs_ma) + float(row["Volume"] / vol_avg)
+        c = self.cfg
+        rs_z = float(row.get("rs_z", 0.0) or 0.0)
+        vol_z = float(row.get("vol_z", 0.0) or 0.0)
+        return c.score_rs_weight * rs_z + c.score_vol_weight * vol_z
+
+    def regime_ok(self, benchmark_weekly: Optional[pd.DataFrame], week_end: pd.Timestamp) -> bool:
+        """¿El mercado está por encima de su media de largo plazo?"""
+        if not self.cfg.require_bull_regime:
+            return True
+        if benchmark_weekly is None or benchmark_weekly.empty:
+            return True
+        bench = benchmark_weekly[benchmark_weekly.index <= week_end]
+        if len(bench) < self.cfg.sma_weeks:
+            return True
+        sma = bench["Adj Close"].rolling(self.cfg.sma_weeks).mean().iloc[-1]
+        if pd.isna(sma):
+            return True
+        return float(bench["Adj Close"].iloc[-1]) > float(sma)
+
+    def sector_slot_available(self, symbol: str, positions: Dict[str, Any]) -> bool:
+        """Evita concentrar la cartera en un puñado de nombres correlacionados."""
+        if self.cfg.max_per_sector <= 0:
+            return True
+        sector = SECTOR_MAP.get(symbol)
+        if sector is None:
+            return True
+        held = sum(1 for s in positions if SECTOR_MAP.get(s) == sector)
+        return held < self.cfg.max_per_sector
+
+    def resolve_stop(self, entry_price: float, row: pd.Series) -> float:
+        """Combina el mínimo de la caja con los topes de volatilidad."""
+        stop_price = float(row["box_low_prev"])
+        atr = float(row.get("atr", float("nan")) or float("nan"))
+        if self.cfg.atr_stop_mult > 0 and not math.isnan(atr) and atr > 0:
+            stop_price = max(stop_price, entry_price - self.cfg.atr_stop_mult * atr)
+        if self.cfg.max_stop_pct > 0:
+            stop_price = max(stop_price, entry_price * (1.0 - self.cfg.max_stop_pct))
+        return stop_price
 
     def build_position(self, symbol: str, entry_date: pd.Timestamp, entry_price: float,
                        row: pd.Series, equity: float, cash: float) -> Optional[PositionState]:
-        stop_price = float(row["box_low_prev"])
+        stop_price = self.resolve_stop(entry_price, row)
         if math.isnan(stop_price) or stop_price >= entry_price:
             return None
 

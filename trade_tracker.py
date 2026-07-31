@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import smtplib
+import traceback
 import urllib.request
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -17,6 +18,9 @@ _CSV_FIELDS = [
     "symbol", "entry_date", "entry_price", "initial_shares",
     "exit_date", "exit_price", "exit_shares", "exit_reason",
     "gross_pnl", "r_multiple", "is_partial",
+    # Precio que la estrategia asumía vs. el fill real: la diferencia es el
+    # deslizamiento, y sin registrarlo el historial sobrestima el desempeño.
+    "modeled_exit_price", "slippage_per_share",
 ]
 
 
@@ -31,9 +35,12 @@ def record_trade(
     exit_reason: str,
     risk_per_share: float,
     is_partial: bool = False,
+    modeled_exit_price: float | None = None,
 ) -> None:
     gross_pnl = round((exit_price - entry_price) * exit_shares, 2)
     r_multiple = round((exit_price - entry_price) / risk_per_share, 3) if risk_per_share > 0 else 0.0
+    modeled = exit_price if modeled_exit_price is None else modeled_exit_price
+    slippage = round(exit_price - modeled, 4)
 
     TRADE_HISTORY_PATH.parent.mkdir(parents=True, exist_ok=True)
     write_header = not TRADE_HISTORY_PATH.exists()
@@ -54,10 +61,12 @@ def record_trade(
             "gross_pnl": gross_pnl,
             "r_multiple": r_multiple,
             "is_partial": is_partial,
+            "modeled_exit_price": round(modeled, 4),
+            "slippage_per_share": slippage,
         })
     logging.info(
-        "[TRADE_LOG] %s exit=%s precio=%.4f pnl=%.2f R=%.3f",
-        symbol, exit_reason, exit_price, gross_pnl, r_multiple,
+        "[TRADE_LOG] %s exit=%s precio=%.4f (modelado %.4f, desliz %.4f) pnl=%.2f R=%.3f",
+        symbol, exit_reason, exit_price, modeled, slippage, gross_pnl, r_multiple,
     )
 
 
@@ -174,3 +183,20 @@ def send_weekly_summary(
     subject = f"[Trading Bot] Semana {week_end}"
     _send_email(subject, body)
     _send_telegram(body)
+
+
+def send_failure_alert(exc: BaseException) -> None:
+    """Avisa cuando el bot muere.
+
+    Sin esto un crash es indistinguible de una semana sin señales, y el bot
+    puede quedar semanas caído con posiciones abiertas sin gestionar.
+    """
+    if not (os.getenv("NOTIFY_EMAIL") or os.getenv("TELEGRAM_TOKEN")):
+        return
+    body = (
+        "El bot semanal falló y no completó su ciclo.\n\n"
+        f"{type(exc).__name__}: {exc}\n\n"
+        f"{traceback.format_exc()}"
+    )
+    _send_email("[Trading Bot] FALLO en la corrida", body)
+    _send_telegram(body[:3500])

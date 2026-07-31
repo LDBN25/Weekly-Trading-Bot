@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.env
+alpaca_weekly_state.json
+alpaca_weekly_bot.log
+
+# artefactos de analisis
+data/trade_history.csv
+fills_raw.csv
+round_trips.csv
+backtest_bars.pkl
