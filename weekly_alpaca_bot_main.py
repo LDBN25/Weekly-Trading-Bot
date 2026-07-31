@@ -85,7 +85,7 @@ def build_config() -> StrategyConfig:
         atr_stop_mult=float(os.getenv("ATR_STOP_MULT", "0")),
         atr_weeks=int(os.getenv("ATR_WEEKS", "10")),
         require_bull_regime=env_bool("REQUIRE_BULL_REGIME", True),
-        max_per_sector=int(os.getenv("MAX_PER_SECTOR", "3")),
+        max_per_sector=int(os.getenv("MAX_PER_SECTOR", "0")),
         score_rs_weight=float(os.getenv("SCORE_RS_WEIGHT", "1.0")),
         score_vol_weight=float(os.getenv("SCORE_VOL_WEIGHT", "1.0")),
     )

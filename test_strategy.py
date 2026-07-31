@@ -97,10 +97,17 @@ def test_regime_desactivable():
 
 
 # -------------------------------------------------------------------- sector
-def test_tope_por_sector_bloquea_cuarto_banco(strat):
-    bancos = {s: make_position(symbol=s) for s in ("BAC", "GS", "MS")}
-    assert strat.sector_slot_available("WFC", bancos) is False
-    assert strat.sector_slot_available("NVDA", bancos) is True
+def test_tope_por_sector_bloquea_cuarto_banco():
+    s = WeeklyTrendStrategy(StrategyConfig(max_per_sector=3))
+    bancos = {sym: make_position(symbol=sym) for sym in ("BAC", "GS", "MS")}
+    assert s.sector_slot_available("WFC", bancos) is False
+    assert s.sector_slot_available("NVDA", bancos) is True
+
+
+def test_tope_por_sector_apagado_por_defecto(strat):
+    """El backtest mostró que el tope costaba retorno sin bajar el drawdown."""
+    bancos = {sym: make_position(symbol=sym) for sym in ("BAC", "GS", "MS")}
+    assert strat.sector_slot_available("WFC", bancos) is True
 
 
 def test_semis_separados_de_tech():
@@ -239,3 +246,27 @@ def test_client_order_id_incluye_motivo_y_es_valido():
     cid = bot.make_client_order_id("AAPL", "stopdia")
     assert cid.startswith("stopdia_AAPL_")
     assert len(cid) <= 48
+
+
+# ------------------------------------------------------------------ backtest
+def test_backtest_corre_y_conserva_capital():
+    """Humo del simulador: sin señales el capital no puede cambiar."""
+    import backtest as bt
+
+    plano = make_daily(periods=300, drift=0.0, seed=5)
+    plano[["High", "Low"]] = plano[["Close", "Close"]].values  # sin rango, sin rupturas
+    daily = {"AAA": plano.copy(), "SPY": plano.copy()}
+    sim = bt.Backtest(StrategyConfig(), daily, "SPY", initial_equity=50_000)
+    res = sim.run("plano")
+    assert len(res.equity) > 0
+    assert res.equity.iloc[-1] == pytest.approx(50_000, rel=1e-6)
+
+
+def test_backtest_no_gasta_mas_efectivo_del_disponible():
+    import backtest as bt
+
+    daily = {s: make_daily(periods=400, seed=i) for i, s in enumerate(["AAA", "BBB", "CCC"])}
+    daily["SPY"] = make_daily(periods=400, drift=0.0005, seed=99)
+    sim = bt.Backtest(StrategyConfig(), daily, "SPY", initial_equity=25_000)
+    res = sim.run("cash")
+    assert (res.equity > 0).all(), "el equity nunca puede volverse negativo"

@@ -52,7 +52,9 @@ class StrategyConfig:
     atr_weeks: int = 10
     # Sin filtro de régimen el bot compra rupturas dentro de un mercado bajista.
     require_bull_regime: bool = True
-    max_per_sector: int = 3
+    # Apagado: en 2018-2026 el tope no bajó el drawdown (-13.1% con y sin él) y
+    # costó ~75 puntos de retorno. Queda disponible como opt-in.
+    max_per_sector: int = 0
     score_rs_weight: float = 1.0
     score_vol_weight: float = 1.0
     score_z_weeks: int = 52
