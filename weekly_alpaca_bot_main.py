@@ -88,6 +88,7 @@ def build_config() -> StrategyConfig:
         max_per_sector=int(os.getenv("MAX_PER_SECTOR", "0")),
         score_rs_weight=float(os.getenv("SCORE_RS_WEIGHT", "1.0")),
         score_vol_weight=float(os.getenv("SCORE_VOL_WEIGHT", "1.0")),
+        min_position_fraction=float(os.getenv("MIN_POSITION_FRACTION", "0")),
     )
 
 

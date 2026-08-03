@@ -139,6 +139,23 @@ def test_build_position_rechaza_stop_invalido(strat):
     assert strat.build_position("X", pd.Timestamp("2025-01-06"), 100.0, row, 1e5, 1e5) is None
 
 
+def test_piso_de_tamano_rechaza_posicion_testimonial():
+    """Con el piso activo, no abre 1 accion de un objetivo de 200."""
+    s = WeeklyTrendStrategy(StrategyConfig(min_position_fraction=0.5))
+    row = pd.Series({"box_low_prev": 90.0, "atr": 5.0})
+    assert s.build_position("X", pd.Timestamp("2025-01-06"), 100.0, row, 100_000, 150.0) is None
+    # 120 de 200 objetivo = 60%, por encima del piso
+    pos = s.build_position("X", pd.Timestamp("2025-01-06"), 100.0, row, 100_000, 12_000.0)
+    assert pos is not None and pos.shares == 120
+
+
+def test_sin_piso_por_defecto_acepta_posicion_chica(strat):
+    """Default 0: el backtest mostro que saltear entradas chicas cuesta mas."""
+    row = pd.Series({"box_low_prev": 90.0, "atr": 5.0})
+    pos = strat.build_position("X", pd.Timestamp("2025-01-06"), 100.0, row, 100_000, 150.0)
+    assert pos is not None and pos.shares == 1
+
+
 def test_build_position_respeta_riesgo(strat):
     row = pd.Series({"box_low_prev": 90.0, "atr": 5.0})
     pos = strat.build_position("X", pd.Timestamp("2025-01-06"), 100.0, row, 100_000, 1e9)

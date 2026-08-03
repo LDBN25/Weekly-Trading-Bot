@@ -58,6 +58,11 @@ class StrategyConfig:
     score_rs_weight: float = 1.0
     score_vol_weight: float = 1.0
     score_z_weeks: int = 52
+    # Descarta la entrada si el efectivo solo alcanza para menos de esta
+    # fraccion del tamano que pide el modelo de riesgo. Apagado: en 2018-2026
+    # cualquier piso costo retorno y Sharpe (0.05 ya cuesta 30 puntos). Una
+    # posicion chica en un ganador rinde mas que no entrar.
+    min_position_fraction: float = 0.0
 
 
 @dataclass
@@ -191,13 +196,18 @@ class WeeklyTrendStrategy:
 
         risk_per_share = entry_price - stop_price
         risk_budget = equity * self.cfg.risk_pct_per_trade
-        shares = int(risk_budget // risk_per_share)
-        if shares <= 0:
+        objetivo = int(risk_budget // risk_per_share)
+        if objetivo <= 0:
             return None
 
         max_affordable = int(cash // entry_price)
-        shares = min(shares, max_affordable)
+        shares = min(objetivo, max_affordable)
         if shares <= 0:
+            return None
+
+        # Sin este piso, con poco efectivo el bot abre posiciones testimoniales
+        # (1 accion) que no aportan riesgo pero ocupan un cupo de los 10.
+        if self.cfg.min_position_fraction > 0 and shares < objetivo * self.cfg.min_position_fraction:
             return None
 
         return PositionState(
