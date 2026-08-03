@@ -339,6 +339,12 @@ def _log_exit(
     """Registra la salida usando el fill real cuando existe."""
     exit_price = fill[0] if fill else modeled_price
     exit_qty = int(fill[1]) if fill else qty
+    if DRY_RUN:
+        # Una simulación no puede ensuciar el historial real de operaciones.
+        logging.info(
+            "[DRY_RUN] no se registra el trade %s %s @ %.4f", symbol, reason, exit_price
+        )
+        return
     record_trade(
         symbol=symbol,
         entry_date=str(pos.entry_date)[:10],
@@ -499,6 +505,7 @@ def open_new_positions(
     positions: Dict[str, PositionState],
     week_end: pd.Timestamp,
     bench_weekly: Optional[pd.DataFrame] = None,
+    broker: Optional[Dict[str, Dict]] = None,
 ) -> Tuple[Dict[str, PositionState], List[Dict]]:
     if not ALLOW_NEW_ENTRIES:
         return positions, []
@@ -517,7 +524,16 @@ def open_new_positions(
         return updated, entries_log
 
     pending_symbols = get_pending_order_symbols(trading)
-    excluded = set(updated.keys()) | pending_symbols
+    # Lo que el broker ya tiene queda excluido aunque no esté en el state. Sin
+    # esto, con ADOPT_ORPHANS=0 las posiciones huérfanas no bloqueaban la
+    # entrada y el bot compraba encima de lo que ya tenía.
+    held_at_broker = {s for s, v in (broker or {}).items() if v.get("qty", 0) > 0}
+    excluded = set(updated.keys()) | pending_symbols | held_at_broker
+    if held_at_broker - set(updated.keys()):
+        logging.info(
+            "[ENTRY] Excluidos por tenencia en broker fuera del state: %s",
+            sorted(held_at_broker - set(updated.keys())),
+        )
     candidates = score_candidates(strategy, weekly_map, week_end, excluded)
     logging.info("[ENTRY] Candidatos=%s", [c[0] for c in candidates[:slots * 2]])
 
@@ -746,12 +762,21 @@ def main() -> None:
             )
             exits_log.extend(weekly_exits)
             positions, entries_log = open_new_positions(
-                trading, strategy, daily_map, weekly_map, positions, week_end, bench_weekly
+                trading, strategy, daily_map, weekly_map, positions, week_end,
+                bench_weekly, broker,
             )
             meta = mark_processed(meta, week_end)
 
     changed = has_meaningful_changes(positions_before, positions)
-    save_state(positions, meta)
+    if DRY_RUN:
+        # Una simulación no puede dejar rastro: si persiste el state, borra
+        # posiciones que nunca se vendieron y marca la semana como procesada.
+        logging.info(
+            "[DRY_RUN] state NO guardado. Simulado: %s | actual en disco: %s",
+            list(positions.keys()), list(load_state()[0].keys()),
+        )
+    else:
+        save_state(positions, meta)
     logging.info("[DONE] cambios=%s posiciones finales=%s", changed, list(positions.keys()))
 
     try:

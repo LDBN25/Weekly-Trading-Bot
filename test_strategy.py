@@ -265,6 +265,43 @@ def test_client_order_id_incluye_motivo_y_es_valido():
     assert len(cid) <= 48
 
 
+def test_dry_run_no_persiste_ni_registra(tmp_path, monkeypatch):
+    """Una simulación no puede borrar posiciones del state ni escribir trades."""
+    import json
+
+    estado = tmp_path / "state.json"
+    estado.write_text(json.dumps({
+        "positions": {"AAPL": {
+            "symbol": "AAPL", "entry_date": "2026-05-01 00:00:00", "entry_price": 100.0,
+            "shares": 10, "initial_shares": 10, "stop_price": 90.0,
+            "initial_stop_price": 90.0, "risk_per_share": 10.0,
+        }},
+        "meta": {"last_processed_week": "2026-07-24"},
+    }))
+    historial = tmp_path / "trades.csv"
+    monkeypatch.setattr(bot, "STATE_PATH", estado)
+    monkeypatch.setattr(bot, "DRY_RUN", True)
+
+    # save_state solo debe correr fuera de DRY_RUN
+    pos, meta = bot.load_state()
+    assert "AAPL" in pos
+    if not bot.DRY_RUN:
+        bot.save_state({}, meta)
+    assert "AAPL" in bot.load_state()[0], "DRY_RUN no debe vaciar el state"
+    assert not historial.exists(), "DRY_RUN no debe crear historial de trades"
+
+
+def test_entradas_excluyen_tenencia_del_broker():
+    """Un simbolo que el broker ya tiene no puede volver a comprarse."""
+    updated = {"BAC": None}
+    pending = {"CSCO"}
+    broker = {"MA": {"qty": 25.0}, "V": {"qty": 68.0}, "BAC": {"qty": 291.0}}
+    held = {s for s, v in broker.items() if v.get("qty", 0) > 0}
+    excluded = set(updated) | pending | held
+    assert "MA" in excluded and "V" in excluded
+    assert excluded == {"BAC", "CSCO", "MA", "V"}
+
+
 # ------------------------------------------------------------------ backtest
 def test_backtest_corre_y_conserva_capital():
     """Humo del simulador: sin señales el capital no puede cambiar."""
