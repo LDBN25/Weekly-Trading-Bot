@@ -291,6 +291,28 @@ def test_dry_run_no_persiste_ni_registra(tmp_path, monkeypatch):
     assert not historial.exists(), "DRY_RUN no debe crear historial de trades"
 
 
+def test_no_evalua_posicion_contra_semana_previa_a_su_entrada(strat):
+    """El caso AMZN: vela en V que dispara la señal y mata la entrada."""
+    # Semana de señal: mínimo 226.16, cierre 271.58. Stop de las 3 semanas
+    # previas = 231.34. El mínimo de la propia semana lo perfora.
+    pos = make_position(entry_price=285.93, stop_price=231.34,
+                        risk_per_share=54.59, entry_date=pd.Timestamp("2026-08-03"))
+    row = pd.Series({"High": 273.23, "Low": 226.16, "Adj Close": 271.58,
+                     "exit_signal": False, "prior_2w_low": 231.34})
+    # Evaluada directamente, la estrategia la cierra: por eso hace falta el guardia.
+    assert strat.evaluate_position_week(pos, row)["action"] == "exit_all"
+
+    semana = pd.Timestamp("2026-07-31")
+    entrada = pd.Timestamp(pos.entry_date).normalize()
+    assert entrada >= semana, "la entrada es posterior a la semana evaluada"
+
+
+def test_si_evalua_cuando_la_entrada_es_anterior():
+    entrada = pd.Timestamp("2026-05-04").normalize()
+    semana = pd.Timestamp("2026-07-31")
+    assert not (entrada >= semana), "una posición vieja sí debe evaluarse"
+
+
 def test_una_sola_orden_por_simbolo_por_corrida(monkeypatch):
     """La doble venta de CSCO/MU/QCOM dejó la cuenta en corto. No puede repetirse."""
     enviadas = []

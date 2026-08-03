@@ -476,6 +476,18 @@ def manage_open_positions(
             logging.warning("[MANAGE] %s sin datos semanales para %s", symbol, week_end.date())
             continue
 
+        # Una posición no puede juzgarse por una semana anterior a su entrada.
+        # El stop sale de las 3 semanas previas a la señal, así que si la semana
+        # de la señal tuvo un mínimo profundo con cierre alto (una vela en V),
+        # evaluarla contra esa misma semana cierra la posición apenas abierta.
+        entrada = pd.Timestamp(updated[symbol].entry_date).normalize()
+        if entrada >= week_end:
+            logging.info(
+                "[MANAGE] %s entró el %s, posterior a la semana %s: se evalúa desde la siguiente",
+                symbol, entrada.date(), week_end.date(),
+            )
+            continue
+
         pos = updated[symbol]
         pos = strategy.activate_pending_stop(pos)
         row = weekly_map[symbol].loc[week_end]
@@ -506,7 +518,11 @@ def manage_open_positions(
                 continue
 
             reason = decision.get("reason", "exit_all")
-            modeled = pos.stop_price if reason == "stop" else float(row["Adj Close"])
+            # El precio modelado es el último que la estrategia vio al decidir,
+            # no el nivel del stop: el stop se dispara con el mínimo semanal
+            # pero la orden se ejecuta días después a mercado. Usar el stop
+            # convertía esa brecha en un "deslizamiento" de $53 que no lo era.
+            modeled = float(row["Adj Close"])
             fill = submit_market_order(trading, symbol, qty, OrderSide.SELL, reason=reason)
             _log_exit(symbol, pos, week_end, qty, reason, modeled, fill, False, exits_log)
             del updated[symbol]
