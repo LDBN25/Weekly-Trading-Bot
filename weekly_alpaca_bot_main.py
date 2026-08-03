@@ -291,6 +291,9 @@ def submit_market_order(
     submitted = trading.submit_order(order)
     logging.info("[ORDER] %s %s qty=%s (%s)", side.value.upper(), symbol, qty, reason)
 
+    # Hay que esperar el estado terminal, no el primer llenado: una orden grande
+    # se ejecuta en tramos y cortar en el primero registraba 33 de 58 acciones.
+    parcial: Optional[Tuple[float, float]] = None
     for _ in range(FILL_POLL_ATTEMPTS):
         try:
             live = trading.get_order_by_id(submitted.id)
@@ -298,14 +301,29 @@ def submit_market_order(
             logging.warning("[ORDER] %s no se pudo consultar: %s", symbol, exc)
             break
         filled_qty = float(live.filled_qty or 0)
+        estado = str(live.status.value)
         if filled_qty > 0 and live.filled_avg_price is not None:
-            price = float(live.filled_avg_price)
-            logging.info("[FILL] %s qty=%s precio=%.4f", symbol, filled_qty, price)
-            return price, filled_qty
-        if str(live.status.value) in {"canceled", "expired", "rejected"}:
-            logging.warning("[ORDER] %s terminó en %s sin ejecutarse", symbol, live.status.value)
+            parcial = (float(live.filled_avg_price), filled_qty)
+        if estado == "filled" and parcial:
+            logging.info("[FILL] %s qty=%s precio=%.4f", symbol, parcial[1], parcial[0])
+            return parcial
+        if estado in {"canceled", "expired", "rejected"}:
+            if parcial:
+                logging.warning(
+                    "[ORDER] %s terminó en %s con ejecución parcial %s de %s",
+                    symbol, estado, parcial[1], qty,
+                )
+                return parcial
+            logging.warning("[ORDER] %s terminó en %s sin ejecutarse", symbol, estado)
             return None
         time.sleep(FILL_POLL_SECONDS)
+
+    if parcial:
+        logging.warning(
+            "[ORDER] %s sin estado terminal tras %.0fs; se registra lo ejecutado: %s de %s",
+            symbol, FILL_POLL_SECONDS * FILL_POLL_ATTEMPTS, parcial[1], qty,
+        )
+        return parcial
 
     logging.warning(
         "[ORDER] %s enviada pero sin confirmación de fill tras %.0fs. Se asume ENVIADA "

@@ -316,6 +316,65 @@ def test_una_sola_orden_por_simbolo_por_corrida(monkeypatch):
     assert len(enviadas) == 1, f"se enviaron {len(enviadas)} órdenes de CSCO: {enviadas}"
 
 
+def test_espera_el_llenado_total_no_el_primer_parcial(monkeypatch):
+    """Cortar en el primer tramo registraba 33 acciones de una venta de 58."""
+
+    class FakeOrder:
+        id = "x"
+
+    class Estado:
+        def __init__(self, v):
+            self.value = v
+
+    class Live:
+        def __init__(self, q, st):
+            self.filled_qty, self.filled_avg_price, self.status = q, 114.89, Estado(st)
+
+    secuencia = [Live(0, "new"), Live(33, "partially_filled"), Live(58, "filled")]
+
+    class FakeTrading:
+        def submit_order(self, order):
+            return FakeOrder()
+
+        def get_order_by_id(self, _):
+            return secuencia.pop(0)
+
+    monkeypatch.setattr(bot, "DRY_RUN", False)
+    monkeypatch.setattr(bot, "_ORDENES_ENVIADAS", set())
+    monkeypatch.setattr(bot, "FILL_POLL_SECONDS", 0)
+    resultado = bot.submit_market_order(FakeTrading(), "CSCO", 58, bot.OrderSide.SELL, reason="stop")
+    assert resultado is not None
+    assert resultado[1] == 58, f"registró {resultado[1]} en vez de 58"
+
+
+def test_devuelve_parcial_si_la_orden_se_cancela(monkeypatch):
+    class FakeOrder:
+        id = "x"
+
+    class Estado:
+        def __init__(self, v):
+            self.value = v
+
+    class Live:
+        def __init__(self, q, st):
+            self.filled_qty, self.filled_avg_price, self.status = q, 100.0, Estado(st)
+
+    secuencia = [Live(20, "partially_filled"), Live(20, "canceled")]
+
+    class FakeTrading:
+        def submit_order(self, order):
+            return FakeOrder()
+
+        def get_order_by_id(self, _):
+            return secuencia.pop(0)
+
+    monkeypatch.setattr(bot, "DRY_RUN", False)
+    monkeypatch.setattr(bot, "_ORDENES_ENVIADAS", set())
+    monkeypatch.setattr(bot, "FILL_POLL_SECONDS", 0)
+    r = bot.submit_market_order(FakeTrading(), "X", 50, bot.OrderSide.SELL, reason="stop")
+    assert r == (100.0, 20.0)
+
+
 def test_guardia_no_bloquea_simbolos_distintos(monkeypatch):
     enviadas = []
 

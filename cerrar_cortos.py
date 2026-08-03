@@ -66,7 +66,8 @@ def main() -> None:
         print(f"[COVER] {sym} qty={qty} enviada")
         for _ in range(20):
             live = t.get_order_by_id(enviada.id)
-            if float(live.filled_qty or 0) > 0 and live.filled_avg_price:
+            # Esperar el estado terminal: una orden grande llena en tramos.
+            if str(live.status.value) == "filled" and live.filled_avg_price:
                 print(f"[FILL]  {sym} qty={live.filled_qty} @ {float(live.filled_avg_price):.4f}")
                 break
             if str(live.status.value) in {"canceled", "expired", "rejected"}:
