@@ -291,6 +291,53 @@ def test_dry_run_no_persiste_ni_registra(tmp_path, monkeypatch):
     assert not historial.exists(), "DRY_RUN no debe crear historial de trades"
 
 
+def test_una_sola_orden_por_simbolo_por_corrida(monkeypatch):
+    """La doble venta de CSCO/MU/QCOM dejó la cuenta en corto. No puede repetirse."""
+    enviadas = []
+
+    class FakeOrder:
+        id = "x"
+
+    class FakeTrading:
+        def submit_order(self, order):
+            enviadas.append((order.symbol, order.qty))
+            return FakeOrder()
+
+        def get_order_by_id(self, _):
+            raise RuntimeError("sin confirmación")  # peor caso: timeout
+
+    monkeypatch.setattr(bot, "DRY_RUN", False)
+    monkeypatch.setattr(bot, "_ORDENES_ENVIADAS", set())
+    t = FakeTrading()
+
+    bot.submit_market_order(t, "CSCO", 58, bot.OrderSide.SELL, reason="stopdia")
+    bot.submit_market_order(t, "CSCO", 58, bot.OrderSide.SELL, reason="stop")
+
+    assert len(enviadas) == 1, f"se enviaron {len(enviadas)} órdenes de CSCO: {enviadas}"
+
+
+def test_guardia_no_bloquea_simbolos_distintos(monkeypatch):
+    enviadas = []
+
+    class FakeOrder:
+        id = "x"
+
+    class FakeTrading:
+        def submit_order(self, order):
+            enviadas.append(order.symbol)
+            return FakeOrder()
+
+        def get_order_by_id(self, _):
+            raise RuntimeError("sin confirmación")
+
+    monkeypatch.setattr(bot, "DRY_RUN", False)
+    monkeypatch.setattr(bot, "_ORDENES_ENVIADAS", set())
+    t = FakeTrading()
+    for s in ("CSCO", "MU", "QCOM"):
+        bot.submit_market_order(t, s, 10, bot.OrderSide.SELL, reason="stopdia")
+    assert enviadas == ["CSCO", "MU", "QCOM"]
+
+
 def test_entradas_excluyen_tenencia_del_broker():
     """Un simbolo que el broker ya tiene no puede volver a comprarse."""
     updated = {"BAC": None}

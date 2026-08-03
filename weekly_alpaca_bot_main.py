@@ -47,8 +47,14 @@ DAILY_STOP_CHECK = os.getenv("DAILY_STOP_CHECK", "1") == "1"
 # Adopta posiciones que estan en el broker pero no en el state, en vez de
 # dejarlas sin gestionar para siempre.
 ADOPT_ORPHANS = os.getenv("ADOPT_ORPHANS", "1") == "1"
-FILL_POLL_SECONDS = float(os.getenv("FILL_POLL_SECONDS", "1.5"))
-FILL_POLL_ATTEMPTS = int(os.getenv("FILL_POLL_ATTEMPTS", "8"))
+FILL_POLL_SECONDS = float(os.getenv("FILL_POLL_SECONDS", "2.0"))
+# En la apertura Alpaca puede tardar bastante en confirmar. Con 12s el bot daba
+# la venta por no ejecutada y volvia a venderla, dejando la cuenta en corto.
+FILL_POLL_ATTEMPTS = int(os.getenv("FILL_POLL_ATTEMPTS", "20"))
+
+# Simbolos con una orden ya enviada en esta corrida. Reintentar una venta es
+# mucho peor que asumirla enviada: duplicarla abre un corto.
+_ORDENES_ENVIADAS: set = set()
 
 
 def setup_logging() -> None:
@@ -262,7 +268,18 @@ def submit_market_order(
         return None
     if DRY_RUN:
         logging.info("[DRY_RUN] %s %s qty=%s (%s)", side.value.upper(), symbol, qty, reason)
+        _ORDENES_ENVIADAS.add(symbol)
         return None
+
+    # Salvaguarda dura: una sola orden por simbolo por corrida.
+    if symbol in _ORDENES_ENVIADAS:
+        logging.error(
+            "[ORDER] %s YA tuvo una orden en esta corrida; se omite %s qty=%s (%s). "
+            "Duplicarla abriria un corto.",
+            symbol, side.value.upper(), qty, reason,
+        )
+        return None
+    _ORDENES_ENVIADAS.add(symbol)
 
     order = MarketOrderRequest(
         symbol=symbol,
@@ -290,7 +307,11 @@ def submit_market_order(
             return None
         time.sleep(FILL_POLL_SECONDS)
 
-    logging.warning("[ORDER] %s sin confirmación de fill; se usará el precio modelado", symbol)
+    logging.warning(
+        "[ORDER] %s enviada pero sin confirmación de fill tras %.0fs. Se asume ENVIADA "
+        "y se saca del state; la reconciliación de la próxima corrida ajusta si no llenó.",
+        symbol, FILL_POLL_SECONDS * FILL_POLL_ATTEMPTS,
+    )
     return None
 
 
@@ -408,9 +429,9 @@ def check_daily_stops(
             "[STOP_DIARIO] %s cierre=%.4f <= stop=%.4f → salida", symbol, last_close, pos.stop_price
         )
         fill = submit_market_order(trading, symbol, qty, OrderSide.SELL, reason="stopdia")
-        if fill is None and not DRY_RUN:
-            logging.warning("[STOP_DIARIO] %s sin fill confirmado; se conserva en state", symbol)
-            continue
+        # La orden se envió: sale del state aunque el fill no se haya confirmado
+        # a tiempo. Conservarla llevaba a que la lógica semanal la vendiera otra
+        # vez y la cuenta quedara en corto.
         _log_exit(symbol, pos, last_date, qty, "stop_diario", last_close, fill, False, exits_log)
         del updated[symbol]
 
@@ -429,6 +450,10 @@ def manage_open_positions(
     exits_log: List[Dict] = []
 
     for symbol in list(updated.keys()):
+        if symbol in _ORDENES_ENVIADAS:
+            # Ya lo tocó la revisión diaria de stops en esta misma corrida.
+            logging.info("[MANAGE] %s omitido: ya tuvo orden esta corrida", symbol)
+            continue
         if symbol not in weekly_map or week_end not in weekly_map[symbol].index:
             logging.warning("[MANAGE] %s sin datos semanales para %s", symbol, week_end.date())
             continue
@@ -465,10 +490,6 @@ def manage_open_positions(
             reason = decision.get("reason", "exit_all")
             modeled = pos.stop_price if reason == "stop" else float(row["Adj Close"])
             fill = submit_market_order(trading, symbol, qty, OrderSide.SELL, reason=reason)
-            if fill is None and not DRY_RUN:
-                logging.warning("[MANAGE] %s sin fill confirmado; se conserva en state", symbol)
-                updated[symbol] = strategy.apply_week_transition(pos, decision)
-                continue
             _log_exit(symbol, pos, week_end, qty, reason, modeled, fill, False, exits_log)
             del updated[symbol]
             continue
