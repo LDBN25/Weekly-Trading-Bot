@@ -9,3 +9,4 @@ data/trade_history.csv
 fills_raw.csv
 round_trips.csv
 backtest_bars.pkl
+informe_desempeno.pdf
