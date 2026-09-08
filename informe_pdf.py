@@ -530,6 +530,15 @@ def main() -> None:
     if len(cart) < 3:
         sys.exit("Historial de cartera insuficiente.")
 
+    # Recortar el indice a la ventana exacta de la cartera. Sin esto se compara
+    # el rendimiento de la cartera hasta su ultimo dato contra un SPY que llega
+    # hasta hoy, y la diferencia sale inflada por los dias que sobran.
+    spy = spy[(spy.index >= cart.index[0]) & (spy.index <= cart.index[-1])]
+    if len(spy) < 3:
+        sys.exit("Serie del indice insuficiente en la ventana de la cartera.")
+    print(f"      cartera {cart.index[0].date()} a {cart.index[-1].date()} "
+          f"({len(cart)} puntos) | indice {len(spy)} sesiones")
+
     print("[4/5] calculando metricas...")
     mc, ms = metricas(cart), metricas(spy)
     rel = relativas(cart, spy)
