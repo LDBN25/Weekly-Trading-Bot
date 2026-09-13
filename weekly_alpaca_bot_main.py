@@ -773,6 +773,14 @@ def reconcile_state_with_broker(
             stop_price=stop,
             initial_stop_price=stop,
             risk_per_share=max(entry - stop, 1e-9),
+            # El parcial vende a +2.5R, pero esa R se acaba de inventar acá: sale
+            # del box_low de esta semana, no del riesgo real con el que se abrió
+            # la posición. Una posición adoptada que ya viene ganando cumple el
+            # umbral de entrada y el bot le recorta un tercio sin motivo. Le pasó
+            # a JPM dos veces en ocho días (16 y 11 acciones de 50) por quedar
+            # fuera del state al reconstruirlo. Mientras no sepamos su R, no hay
+            # parcial que tenga sentido.
+            partial_taken=True,
             notes={"adoptado": True},
         )
         logging.warning(

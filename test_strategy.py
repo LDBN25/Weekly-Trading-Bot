@@ -514,3 +514,22 @@ def test_diagnostico_lag_detecta_la_serie_corrida_un_dia():
     d = inf.diagnostico_lag(corrida, spy)
     assert abs(d[0]) < 0.2
     assert max(d, key=lambda k: d[k]) == -1
+
+
+def test_posicion_adoptada_no_toma_parcial():
+    """Una adoptada no tiene R conocida: el parcial a +2.5R no significa nada.
+
+    JPM quedo fuera del state al reconstruirlo y el bot la adopto de nuevo, con
+    partial_taken en falso. Como ya venia ganando, cumplio el umbral y le
+    recorto un tercio por segunda vez en ocho dias: 16 acciones el 3 de agosto
+    y 11 el 10, de 50 originales.
+    """
+    week_end = pd.Timestamp("2026-08-10")
+    weekly = pd.DataFrame(
+        {"box_low_prev": [300.0], "Adj Close": [357.0]}, index=[week_end])
+    broker = {"JPM": {"qty": 34, "avg_entry_price": 327.10}}
+
+    rec = bot.reconcile_state_with_broker({}, broker, {"JPM": weekly}, week_end)
+
+    assert rec["JPM"].notes.get("adoptado") is True
+    assert rec["JPM"].partial_taken is True, "la adoptada quedaria habilitada a vender un tercio"

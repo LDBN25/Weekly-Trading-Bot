@@ -547,10 +547,11 @@ def construir(ruta, cart, spy, ops, mc, ms, rel, posiciones, cuenta, desde):
          "Estimar la esperanza de un sistema de tendencia requiere entre 30 y 50 "
          "operaciones cerradas. Por debajo de eso, una sola operacion distinta da vuelta "
          "cualquier estadistico."),
-        ("Periodo contaminado por interrupciones",
-         "El bot estuvo 42 dias sin ejecutarse y acumulo salidas vencidas que se cerraron "
-         "todas juntas. Esas operaciones miden el costo de la interrupcion, no el "
-         "comportamiento del sistema."),
+        ("Arranque con salidas acumuladas",
+         "El 3 de agosto se ejecutaron de golpe las salidas que se habian acumulado "
+         "mientras el bot no operaba, junto con los seis fallos de ejecucion de ese "
+         "mismo dia. Esas operaciones miden el costo del arranque, no el comportamiento "
+         "del sistema. Desde entonces corre semanalmente."),
         ("Sesgo de supervivencia en la referencia historica",
          "Las cifras del backtest usan el universo de mega-caps actual, de modo que los "
          "retornos absolutos estan inflados. Solo son comparables las diferencias entre "
