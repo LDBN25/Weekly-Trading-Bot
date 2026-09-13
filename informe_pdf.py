@@ -519,6 +519,28 @@ def construir(ruta, cart, spy, ops, mc, ms, rel, posiciones, cuenta, desde):
         "duracion entre ganadoras y perdedoras. Mientras se mantenga por encima de 1.5, "
         "el mecanismo funciona como debe aunque el resultado acumulado sea negativo.", P))
 
+    # Comparar contra el indice sin corregir por exposicion sobreestima el atraso
+    # y, peor, disimula el drawdown: la cuenta corre a media beta, asi que su
+    # caida deberia ser la mitad de la del indice, no el doble.
+    if rel and rel.get("beta") and not rel.get("desalineado"):
+        esperado = rel["beta"] * ms["retorno"]
+        dd_esperado = rel["beta"] * ms["maxdd"]
+        e.append(Paragraph(
+            f"<b>La comparacion directa contra el indice no es la que corresponde.</b> "
+            f"La cuenta se movio con una beta de {rel['beta']:.2f}, o sea con una "
+            f"fraccion de la exposicion al mercado, de modo que lo comparable no es el "
+            f"{ms['retorno']:+.2f}% del SPY sino su equivalente ajustado, "
+            f"{esperado:+.2f}%. Contra esa referencia el {mc['retorno']:+.2f}% de la "
+            f"cuenta sigue quedando corto, y esa brecha es la alfa de la tabla anterior.",
+            P))
+        e.append(Paragraph(
+            f"<b>El drawdown es el dato que mas contradice lo esperado.</b> Con esa misma "
+            f"beta, la caida equivalente del indice seria {dd_esperado:.2f}%, y la cuenta "
+            f"registro {mc['maxdd']:.2f}%. La tesis del sistema es amortiguar caidas; en "
+            f"este periodo amplifico. Parte se explica por incidentes de ejecucion y no "
+            f"por la estrategia, pero es el numero a vigilar en el proximo informe: si se "
+            f"repite sin interrupciones de por medio, el supuesto no se sostiene.", P))
+
     e.append(Paragraph("Limitaciones de este analisis", H2))
     for tit, txt in (
         ("Muestra insuficiente",
