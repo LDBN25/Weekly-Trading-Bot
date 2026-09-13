@@ -452,3 +452,32 @@ def test_backtest_no_gasta_mas_efectivo_del_disponible():
     sim = bt.Backtest(StrategyConfig(), daily, "SPY", initial_equity=25_000)
     res = sim.run("cash")
     assert (res.equity > 0).all(), "el equity nunca puede volverse negativo"
+
+
+def test_fetch_daily_bars_cae_a_iex_si_falla_el_feed(monkeypatch):
+    """Si SIP dejara de estar disponible, el bot no puede quedarse sin datos."""
+    pedidos = []
+
+    class FakeRaw:
+        data = {}
+
+    class FakeClient:
+        def get_stock_bars(self, req):
+            pedidos.append(req.feed)
+            if req.feed == "sip":
+                raise RuntimeError("subscription does not permit querying recent SIP data")
+            return FakeRaw()
+
+    monkeypatch.setattr(bot, "DATA_FEED", "sip")
+    bot.fetch_daily_bars(FakeClient(), ["AAPL"])
+    assert pedidos == ["sip", "iex"], f"secuencia inesperada: {pedidos}"
+
+
+def test_fetch_daily_bars_no_reintenta_si_ya_es_iex(monkeypatch):
+    class FakeClient:
+        def get_stock_bars(self, req):
+            raise RuntimeError("fallo de red")
+
+    monkeypatch.setattr(bot, "DATA_FEED", "iex")
+    with pytest.raises(RuntimeError):
+        bot.fetch_daily_bars(FakeClient(), ["AAPL"])

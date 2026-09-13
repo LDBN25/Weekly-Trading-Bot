@@ -163,14 +163,25 @@ def bars_to_df(bars) -> pd.DataFrame:
 
 def fetch_daily_bars(data_client: StockHistoricalDataClient, symbols: List[str]) -> Dict[str, pd.DataFrame]:
     start = datetime.now(tz=UTC) - timedelta(days=LOOKBACK_DAYS)
-    req = StockBarsRequest(
-        symbol_or_symbols=symbols,
-        timeframe=TimeFrame.Day,
-        start=start,
-        adjustment="all",
-        feed=DATA_FEED,
-    )
-    raw = data_client.get_stock_bars(req)
+
+    def pedir(feed: str):
+        return data_client.get_stock_bars(StockBarsRequest(
+            symbol_or_symbols=symbols, timeframe=TimeFrame.Day,
+            start=start, adjustment="all", feed=feed))
+
+    try:
+        raw = pedir(DATA_FEED)
+    except Exception as exc:
+        # El plan gratuito de Alpaca cubre SIP historico; si eso cambiara, el bot
+        # no puede quedarse sin datos. iex siempre esta disponible.
+        if DATA_FEED == "iex":
+            raise
+        logging.warning(
+            "[DATA] El feed '%s' falló (%s). Se reintenta con 'iex'. "
+            "Ojo: cambia el filtro de volumen y por lo tanto las señales.",
+            DATA_FEED, str(exc)[:120],
+        )
+        raw = pedir("iex")
     out: Dict[str, pd.DataFrame] = {}
     for symbol in symbols:
         symbol_bars = raw.data.get(symbol, [])
