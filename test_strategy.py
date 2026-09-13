@@ -481,3 +481,36 @@ def test_fetch_daily_bars_no_reintenta_si_ya_es_iex(monkeypatch):
     monkeypatch.setattr(bot, "DATA_FEED", "iex")
     with pytest.raises(RuntimeError):
         bot.fetch_daily_bars(FakeClient(), ["AAPL"])
+
+
+# ── informe PDF ──────────────────────────────────────────────────────────────
+def test_motivo_distingue_las_ordenes_que_no_son_del_bot():
+    import informe_pdf as inf
+
+    assert inf.etiqueta_motivo("stop_MA_20260803120000") == "stop"
+    assert inf.etiqueta_motivo("partial_AAPL_20260612093001") == "partial"
+    # Alpaca pone un UUID cuando la orden no salio del bot: agrupar por el
+    # prefijo llenaba la tabla de motivos con un identificador por operacion.
+    assert inf.etiqueta_motivo("866041c7-af8d-4320-8813-9e19c1598a92") == inf.SIN_ETIQUETA
+    assert inf.etiqueta_motivo("") == inf.SIN_ETIQUETA
+
+
+def test_diagnostico_lag_detecta_la_serie_corrida_un_dia():
+    import numpy as np
+    import informe_pdf as inf
+
+    idx = pd.bdate_range("2026-04-01", periods=120)
+    r = np.random.default_rng(7).normal(0.0005, 0.01, len(idx))
+    spy = pd.Series(100 * np.cumprod(1 + r), index=idx)
+    cart = pd.Series(100 * np.cumprod(1 + r * 0.8), index=idx)
+
+    alineada = inf.diagnostico_lag(cart, spy)
+    assert max(alineada, key=lambda k: alineada[k]) == 0
+
+    # Una cartera 80% correlacionada con el indice, corrida un dia, daba
+    # correlacion ~0 y beta ~0: exactamente lo que publicaba el informe.
+    corrida = cart.copy()
+    corrida.index = idx.shift(1)
+    d = inf.diagnostico_lag(corrida, spy)
+    assert abs(d[0]) < 0.2
+    assert max(d, key=lambda k: d[k]) == -1

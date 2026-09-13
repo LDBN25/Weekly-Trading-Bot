@@ -82,6 +82,19 @@ def traer_ordenes(t) -> pd.DataFrame:
     return pd.DataFrame(filas).sort_values("fecha").reset_index(drop=True)
 
 
+# Prefijos que el bot escribe en client_order_id (ver make_client_order_id).
+# Una orden que no salio del bot lleva el UUID que le pone Alpaca, y agruparlo
+# como si fuera un motivo llenaba la tabla de filas de N=1 con un identificador
+# por titulo en lugar de decir lo unico que importa: no la cerro la estrategia.
+MOTIVOS_BOT = {"entry", "stop", "stopdia", "ema", "partial", "manual"}
+SIN_ETIQUETA = "sin etiqueta (fuera del bot)"
+
+
+def etiqueta_motivo(cid: str) -> str:
+    pref = cid.split("_")[0] if cid else ""
+    return pref if pref in MOTIVOS_BOT else SIN_ETIQUETA
+
+
 def round_trips(fills: pd.DataFrame) -> pd.DataFrame:
     lotes: dict[str, deque] = defaultdict(deque)
     ops = []
@@ -99,7 +112,7 @@ def round_trips(fills: pd.DataFrame) -> pd.DataFrame:
                         "pnl": (f["price"] - l["p"]) * tomo,
                         "pct": (f["price"] / l["p"] - 1) * 100,
                         "dias": (f["fecha"] - l["d"]).total_seconds() / 86400,
-                        "motivo": f["cid"].split("_")[0] if f["cid"] else "?"})
+                        "motivo": etiqueta_motivo(f["cid"])})
             l["q"] -= tomo
             resto -= tomo
             if l["q"] <= 1e-9:
@@ -112,9 +125,30 @@ def serie_cartera(t, desde: pd.Timestamp) -> pd.Series:
     h = t.get_portfolio_history(GetPortfolioHistoryRequest(
         start=desde.to_pydatetime().replace(tzinfo=timezone.utc),
         end=datetime.now(timezone.utc), timeframe="1D"))
-    s = pd.Series(h.equity, index=pd.to_datetime(h.timestamp, unit="s")).dropna()
-    s.index = s.index.normalize()
+    s = pd.Series(h.equity, index=pd.to_datetime(h.timestamp, unit="s", utc=True)).dropna()
+    # El bucket diario de Alpaca cierra a las 20:00 ET (incluye la sesion
+    # extendida), que en UTC ya cayo al dia siguiente. Normalizando sobre UTC la
+    # serie entera quedaba corrida un dia contra el indice: la beta salia -0.01
+    # y la correlacion -0.01 para una cartera 75% invertida en mega-caps, que es
+    # imposible. Hay que pasar a hora de Nueva York antes de recortar a la fecha.
+    s.index = s.index.tz_convert("America/New_York").tz_localize(None).normalize()
+    s = s[~s.index.duplicated(keep="last")]
     return s[s > 0]
+
+
+def diagnostico_lag(cart: pd.Series, spy: pd.Series) -> dict:
+    """Correlacion de la cartera contra el indice adelantada y atrasada un dia.
+
+    Si el maximo no cae en el lag 0, las dos series no estan alineadas y todo lo
+    que dependa del emparejamiento diario (beta, correlacion, alfa, information
+    ratio) es ruido. Conviene detectarlo y decirlo, no publicarlo.
+    """
+    a, b = cart.pct_change().dropna(), spy.pct_change().dropna()
+    j = a.index.intersection(b.index)
+    if len(j) < 20:
+        return {}
+    a, b = a.loc[j], b.loc[j]
+    return {l: float(a.shift(l).corr(b)) for l in (-1, 0, 1)}
 
 
 def serie_spy(d, desde: pd.Timestamp) -> pd.Series:
@@ -306,7 +340,7 @@ def construir(ruta, cart, spy, ops, mc, ms, rel, posiciones, cuenta, desde):
 
     # KPIs
     dif = mc["retorno"] - ms["retorno"]
-    kpi = [["Retorno estrategia", "Retorno SPY", "Diferencia", "Operaciones"],
+    kpi = [["Retorno de la cuenta", "Retorno SPY", "Diferencia", "Operaciones"],
            [f"{mc['retorno']:+.2f}%", f"{ms['retorno']:+.2f}%",
             f"{dif:+.2f} pts", f"{len(ops)}"]]
     t = Table(kpi, colWidths=[41 * mm] * 4, hAlign="LEFT")
@@ -324,6 +358,10 @@ def construir(ruta, cart, spy, ops, mc, ms, rel, posiciones, cuenta, desde):
         ("LEFTPADDING", (0, 0), (-1, -1), 0),
     ]))
     e.append(t)
+    e.append(Paragraph(
+        "La curva y las metricas de riesgo salen del patrimonio de la cuenta entera, "
+        "que tambien contiene posiciones ajenas al bot. El analisis de operaciones, en "
+        "cambio, se limita al universo de la estrategia. No son la misma poblacion.", CAP))
     e.append(Spacer(1, 12))
 
     # curva
@@ -366,10 +404,17 @@ def construir(ruta, cart, spy, ops, mc, ms, rel, posiciones, cuenta, desde):
               ["Information ratio", f"{rel['info_ratio']:.2f}",
                "Retorno activo por unidad de desvio activo"]]
         # Junto con su titulo: partir esta tabla dejaba filas huerfanas.
-        e.append(KeepTogether([
-            Paragraph("Relacion con el indice", H3),
-            tabla(f2, [38 * mm, 24 * mm, 98 * mm], cols_num=[1]),
-        ]))
+        bloque = [Paragraph("Relacion con el indice", H3),
+                  tabla(f2, [38 * mm, 24 * mm, 98 * mm], cols_num=[1])]
+        if rel.get("desalineado"):
+            bloque.append(Paragraph(
+                "<b>Estas cinco cifras no son fiables en esta corrida.</b> La serie de "
+                "la cartera y la del indice no estan emparejadas por fecha: la "
+                "correlacion es mayor desplazando un dia que dejandolas como estan. "
+                "Las metricas que dependen del emparejamiento diario quedan sin "
+                "sentido; las de la tabla anterior, que solo usan cada serie por "
+                "separado, no se ven afectadas.", CAP))
+        e.append(KeepTogether(bloque))
 
     # operaciones — sin salto forzado: el flujo natural evita paginas semivacias
     e.append(Paragraph("Analisis de las operaciones", H2))
@@ -395,6 +440,16 @@ def construir(ruta, cart, spy, ops, mc, ms, rel, posiciones, cuenta, desde):
               ["Ratio ganancia/perdida", f"{abs(g.pnl.mean() / p.pnl.mean()):.2f}" if len(g) and len(p) and p.pnl.mean() else "-"],
               ["Mejor operacion", f"${ops.pnl.max():+,.2f}"],
               ["Peor operacion", f"${ops.pnl.min():+,.2f}"]]
+        # Cuanto del resultado lo produjo la estrategia y cuanto se cerro a mano.
+        # Sin esta particion el neto atribuye al bot salidas que no decidio.
+        if "motivo" in ops.columns:
+            aj = ops[ops.motivo == SIN_ETIQUETA]
+            if not aj.empty:
+                bot = ops[ops.motivo != SIN_ETIQUETA]
+                f3 += [["Cerradas por el bot",
+                        f"{len(bot)} op  |  ${bot.pnl.sum():+,.2f}"],
+                       ["Cerradas fuera del bot",
+                        f"{len(aj)} op  |  ${aj.pnl.sum():+,.2f}"]]
         e.append(tabla(f3, [58 * mm, 102 * mm]))
 
         f4 = [["", "Ganadoras", "Perdedoras", "Cociente"],
@@ -542,6 +597,16 @@ def main() -> None:
     print("[4/5] calculando metricas...")
     mc, ms = metricas(cart), metricas(spy)
     rel = relativas(cart, spy)
+    lags = diagnostico_lag(cart, spy)
+    if lags:
+        print(f"      correlacion por lag: -1 {lags[-1]:+.2f} | 0 {lags[0]:+.2f} "
+              f"| +1 {lags[1]:+.2f}")
+        mejor = max(lags, key=lambda k: lags[k])
+        if mejor != 0 and lags[mejor] > lags[0] + 0.25:
+            rel["desalineado"] = mejor
+            print(f"[AVISO] la cartera y el indice no estan alineados por fecha "
+                  f"(el lag {mejor:+d} correlaciona mucho mejor que el 0). "
+                  f"Beta, correlacion, alfa e information ratio no son fiables.")
     a = t.get_account()
     cuenta = {"equity": float(a.equity), "cash": float(a.cash),
               "mv": float(a.long_market_value)}
