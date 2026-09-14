@@ -1,0 +1,21 @@
+{
+  "_nota": [
+    "Ultima foto confirmada de la cuenta. El informe diario corre en un entorno",
+    "donde paper-api.alpaca.markets esta bloqueado por politica de egreso, asi",
+    "que no puede leer patrimonio, efectivo ni posiciones en vivo. Parte de esta",
+    "foto y reconstruye los stops replicando la estrategia semana a semana.",
+    "Actualizarla cada vez que se corra dump_estado.py."
+  ],
+  "fecha": "2026-09-13",
+  "origen": "dump_estado.py --desde 2026-08-03",
+  "equity": 108975.54,
+  "cash": 27269.53,
+  "posiciones": [
+    {"symbol": "V",    "qty": 70,  "avg": 371.1497, "entrada": "2026-08-03", "adoptada": false},
+    {"symbol": "MA",   "qty": 42,  "avg": 582.5457, "entrada": "2026-08-03", "adoptada": false},
+    {"symbol": "KO",   "qty": 216, "avg": 87.8000,  "entrada": "2026-08-03", "adoptada": false},
+    {"symbol": "JPM",  "qty": 23,  "avg": 327.0982, "entrada": "2026-08-10", "adoptada": true},
+    {"symbol": "MSFT", "qty": 9,   "avg": 505.0300, "entrada": "2026-08-10", "adoptada": false},
+    {"symbol": "MRK",  "qty": 1,   "avg": 150.1400, "entrada": "2026-08-24", "adoptada": false}
+  ]
+}
