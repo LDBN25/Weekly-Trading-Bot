@@ -100,6 +100,13 @@ def main() -> None:
 
     # ── 2. posiciones ────────────────────────────────────────────────────────
     print("\n[2] POSICIONES")
+    # Pasada una semana la cartera real ya atravesó al menos una corrida del bot,
+    # y la foto describe posiciones que pueden no existir. Se sigue mostrando
+    # como proyección, pero rotulada para que nadie la lea como estado de cuenta.
+    edad = (hoy_ny - pd.Timestamp(foto["fecha"])).days
+    if edad > 7:
+        print(f"  *** FOTO OBSOLETA ({edad} dias). Proyeccion desde el {foto['fecha']}, "
+              f"no estado de la cuenta. Actualizar con dump_estado.py. ***")
     print(f"  {'SYM':6}{'qty':>5}{'entrada':>10}{'hoy':>10}{'ret%':>8}"
           f"{'valor':>11}{'P&L':>10}{'stop':>10}{'dist%':>8}  estado")
     alertas, valor_t, costo_t = [], 0.0, 0.0
