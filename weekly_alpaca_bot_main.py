@@ -40,6 +40,10 @@ def _ruta(valor: str) -> Path:
 
 STATE_PATH = _ruta(os.getenv("STATE_PATH", "data/weekly_strategy_state.json"))
 SYMBOLS_PATH = _ruta(os.getenv("SYMBOLS_PATH", "symbols.txt"))
+# State inicial para un STATE_PATH que todavía no existe, típicamente un Volume
+# recién creado en Railway. Sin semilla el bot arranca vacío, adopta todo lo que
+# hay en el broker con stops nuevos y pierde el trailing acumulado.
+STATE_SEED_PATH = _ruta(os.getenv("STATE_SEED_PATH", "data/state_seed.json"))
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 BENCHMARK = os.getenv("BENCHMARK", "SPY")
 LOOKBACK_DAYS = int(os.getenv("LOOKBACK_DAYS", "900"))
@@ -197,8 +201,26 @@ def fetch_daily_bars(data_client: StockHistoricalDataClient, symbols: List[str])
     out: Dict[str, pd.DataFrame] = {}
     for symbol in symbols:
         symbol_bars = raw.data.get(symbol, [])
-        out[symbol] = bars_to_df(symbol_bars)
+        out[symbol] = drop_unfinished_session(bars_to_df(symbol_bars))
     return out
+
+
+def drop_unfinished_session(df: pd.DataFrame, ahora: Optional[datetime] = None) -> pd.DataFrame:
+    """Saca la barra de hoy si la sesión todavía no cerró.
+
+    En Railway el bot corre a las 9:35 de Nueva York, con el mercado abierto.
+    La barra diaria de hoy ya existe y su "cierre" es el precio de ese momento,
+    así que el chequeo diario comparaba el stop contra un precio intradía: justo
+    las mechas que la regla, definida sobre cierres, quiere ignorar.
+    """
+    if df.empty:
+        return df
+    ahora = ahora or now_ny()
+    hoy = pd.Timestamp(ahora.date())
+    cerrada = (ahora.hour, ahora.minute) >= (16, 5)
+    if not cerrada and df.index[-1].normalize() >= hoy:
+        return df[df.index.normalize() < hoy]
+    return df
 
 
 def position_to_dict(pos: PositionState) -> Dict:
@@ -212,6 +234,15 @@ def position_from_dict(d: Dict) -> PositionState:
     d["entry_date"] = pd.Timestamp(d["entry_date"])
     known = {f for f in PositionState.__dataclass_fields__}
     return PositionState(**{k: v for k, v in d.items() if k in known})
+
+
+def seed_state_if_missing() -> None:
+    if STATE_PATH.exists() or not STATE_SEED_PATH.exists():
+        return
+    STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    STATE_PATH.write_text(STATE_SEED_PATH.read_text())
+    logging.warning("[STATE] %s no existía: se inicializó desde la semilla %s",
+                    STATE_PATH, STATE_SEED_PATH)
 
 
 def load_state_raw() -> Dict:
@@ -835,6 +866,7 @@ def main() -> None:
     setup_logging()
     strategy = WeeklyTrendStrategy(build_config())
     logging.info("[BOOT] config=%s", strategy.cfg)
+    seed_state_if_missing()
     log_state_origin()
 
     run_weekly = should_run_weekly()

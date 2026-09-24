@@ -604,3 +604,47 @@ def test_reparar_usa_la_semana_de_la_ultima_corrida_no_la_del_state():
     # Lunes antes de que corra el bot: todavia vale la corrida anterior.
     assert str(R.semana_de_la_ultima_corrida(
         datetime(2026, 9, 21, 9, tzinfo=ny)).date()) == "2026-09-11"
+
+
+# ── corrida con el mercado abierto (Railway, 9:35 NY) ────────────────────────
+def _barras(fechas):
+    idx = pd.to_datetime(fechas)
+    return pd.DataFrame({"Open": 1.0, "High": 1.0, "Low": 1.0, "Close": 1.0,
+                         "Adj Close": 1.0, "Volume": 1.0}, index=idx)
+
+
+def test_descarta_la_barra_de_una_sesion_abierta():
+    from datetime import datetime
+    df = _barras(["2026-09-18", "2026-09-21"])
+    # Lunes 9:35: la barra del 21 es intradía y su "cierre" es el precio del momento.
+    abierta = bot.drop_unfinished_session(df, datetime(2026, 9, 21, 9, 35, tzinfo=bot.NY))
+    assert list(abierta.index.date.astype(str)) == ["2026-09-18"]
+    # Después del cierre se conserva.
+    cerrada = bot.drop_unfinished_session(df, datetime(2026, 9, 21, 18, 0, tzinfo=bot.NY))
+    assert len(cerrada) == 2
+    # Un fin de semana no pierde el viernes.
+    finde = bot.drop_unfinished_session(_barras(["2026-09-18"]),
+                                        datetime(2026, 9, 20, 10, 0, tzinfo=bot.NY))
+    assert len(finde) == 1
+
+
+def test_sin_barra_de_hoy_la_entrada_usa_el_ultimo_cierre():
+    df = _barras(["2026-09-17", "2026-09-18"])
+    ref = bot.get_next_session_entry_price(df, pd.Timestamp("2026-09-18"))
+    assert ref is not None, "sin la barra del lunes el bot no podria entrar"
+
+
+def test_semilla_inicializa_un_volume_vacio(tmp_path, monkeypatch):
+    import json
+    semilla = tmp_path / "semilla.json"
+    semilla.write_text(json.dumps({"positions": {"KO": {"stop_price": 87.21}},
+                                   "meta": {"last_processed_week": "2026-09-18"}}))
+    destino = tmp_path / "volume" / "state.json"
+    monkeypatch.setattr(bot, "STATE_PATH", destino)
+    monkeypatch.setattr(bot, "STATE_SEED_PATH", semilla)
+    bot.seed_state_if_missing()
+    assert bot.load_state_raw()["meta"]["last_processed_week"] == "2026-09-18"
+    # Un state existente no se pisa nunca.
+    destino.write_text(json.dumps({"positions": {}, "meta": {"last_processed_week": "X"}}))
+    bot.seed_state_if_missing()
+    assert bot.load_state_raw()["meta"]["last_processed_week"] == "X"
