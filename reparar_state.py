@@ -251,9 +251,19 @@ def main() -> None:
                 reparado=str(datetime.now(timezone.utc)))
     bot.save_state(posiciones, meta)
     print(f"escrito: {bot.STATE_PATH}")
-    salen = [s for s, r in rec.items() if r.get("salida")]
-    if salen:
-        print(f"la proxima corrida del bot vende {salen} (stop ya perforado)")
+    # El bot no vende por salidas pasadas: vende si el ultimo cierre sigue debajo
+    # del stop (chequeo diario) o si el minimo de la semana que procesa lo toca.
+    # Una posicion que ya se recupero puede seguir abierta, y hay que decirlo.
+    for s, r in rec.items():
+        if not r.get("salida") or s not in daily:
+            continue
+        cierre = float(daily[s]["Close"].iloc[-1])
+        stop = r["pos"].stop_price
+        if cierre <= stop:
+            print(f"  {s}: ultimo cierre {cierre:.2f} <= stop {stop:.2f} -> la vende la proxima corrida")
+        else:
+            print(f"  {s}: ya se recupero ({cierre:.2f} > stop {stop:.2f}) -> solo sale si "
+                  f"vuelve a perforarlo; si queres respetar la salida original, vendela a mano")
 
 
 if __name__ == "__main__":
