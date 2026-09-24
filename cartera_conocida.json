@@ -6,16 +6,66 @@
     "foto y reconstruye los stops replicando la estrategia semana a semana.",
     "Actualizarla cada vez que se corra dump_estado.py."
   ],
-  "fecha": "2026-09-13",
-  "origen": "dump_estado.py --desde 2026-08-03",
-  "equity": 108975.54,
-  "cash": 27269.53,
+  "fecha": "2026-09-23",
+  "origen": "dump_estado.py --desde 2026-09-14",
+  "equity": 109538.86,
+  "cash": 12891.46,
   "posiciones": [
-    {"symbol": "V",    "qty": 70,  "avg": 371.1497, "entrada": "2026-08-03", "adoptada": false},
-    {"symbol": "MA",   "qty": 42,  "avg": 582.5457, "entrada": "2026-08-03", "adoptada": false},
-    {"symbol": "KO",   "qty": 216, "avg": 87.8000,  "entrada": "2026-08-03", "adoptada": false},
-    {"symbol": "JPM",  "qty": 23,  "avg": 327.0982, "entrada": "2026-08-10", "adoptada": true},
-    {"symbol": "MSFT", "qty": 9,   "avg": 505.0300, "entrada": "2026-08-10", "adoptada": false},
-    {"symbol": "MRK",  "qty": 1,   "avg": 150.1400, "entrada": "2026-08-24", "adoptada": false}
+    {
+      "symbol": "V",
+      "qty": 70,
+      "avg": 371.1497,
+      "entrada": "2026-08-03",
+      "adoptada": false
+    },
+    {
+      "symbol": "MA",
+      "qty": 42,
+      "avg": 582.5457,
+      "entrada": "2026-08-03",
+      "adoptada": false
+    },
+    {
+      "symbol": "KO",
+      "qty": 216,
+      "avg": 87.8,
+      "entrada": "2026-08-03",
+      "adoptada": false
+    },
+    {
+      "symbol": "META",
+      "qty": 13,
+      "avg": 654.2769,
+      "entrada": "2026-09-14",
+      "adoptada": false
+    },
+    {
+      "symbol": "JPM",
+      "qty": 23,
+      "avg": 327.0982,
+      "entrada": "2026-08-10",
+      "adoptada": true
+    },
+    {
+      "symbol": "AMD",
+      "qty": 11,
+      "avg": 585.4464,
+      "entrada": "2026-09-21",
+      "adoptada": false
+    },
+    {
+      "symbol": "MSFT",
+      "qty": 9,
+      "avg": 505.03,
+      "entrada": "2026-08-10",
+      "adoptada": false
+    },
+    {
+      "symbol": "MRK",
+      "qty": 1,
+      "avg": 150.14,
+      "entrada": "2026-08-24",
+      "adoptada": false
+    }
   ]
 }
