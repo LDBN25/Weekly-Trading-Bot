@@ -26,8 +26,20 @@ from trade_tracker import record_trade, send_weekly_summary, send_failure_alert
 
 NY = ZoneInfo("America/New_York")
 UTC = timezone.utc
-STATE_PATH = Path(os.getenv("STATE_PATH", "data/weekly_strategy_state.json"))
-SYMBOLS_PATH = Path(os.getenv("SYMBOLS_PATH", "symbols.txt"))
+# Las rutas se resuelven contra la carpeta del script, no contra el directorio
+# de trabajo. Una tarea programada arranca donde diga su "Iniciar en", y con una
+# ruta relativa el bot puede leer y escribir un state distinto del que uno cree
+# sin dar ningun error.
+BASE_DIR = Path(__file__).resolve().parent
+
+
+def _ruta(valor: str) -> Path:
+    p = Path(valor)
+    return p if p.is_absolute() else BASE_DIR / p
+
+
+STATE_PATH = _ruta(os.getenv("STATE_PATH", "data/weekly_strategy_state.json"))
+SYMBOLS_PATH = _ruta(os.getenv("SYMBOLS_PATH", "symbols.txt"))
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 BENCHMARK = os.getenv("BENCHMARK", "SPY")
 LOOKBACK_DAYS = int(os.getenv("LOOKBACK_DAYS", "900"))
@@ -669,6 +681,31 @@ def build_weekly_maps(strategy: WeeklyTrendStrategy, daily_map: Dict[str, pd.Dat
     return out, bench_weekly
 
 
+def log_state_origin() -> None:
+    """Dice qué archivo de state se usa y qué contiene, antes de tocar nada.
+
+    MA y V se quedaron semanas con stops que la estrategia ya había superado, y
+    desde afuera no había forma de saber qué state estaba leyendo el bot. Con
+    esto queda en el log de cada corrida.
+    """
+    if not STATE_PATH.exists():
+        logging.warning("[STATE] %s no existe: se arranca con state vacío y se "
+                        "adopta lo que haya en el broker", STATE_PATH)
+        return
+    raw = load_state_raw()
+    modificado = datetime.fromtimestamp(STATE_PATH.stat().st_mtime, tz=UTC)
+    stops = {s: round(float(v.get("stop_price", 0)), 2)
+             for s, v in raw.get("positions", {}).items()}
+    ultima = raw.get("meta", {}).get("last_processed_week")
+    logging.info("[STATE] %s | modificado %s | última semana %s | stops %s",
+                 STATE_PATH, modificado.strftime("%Y-%m-%d %H:%M UTC"), ultima, stops)
+    if ultima:
+        atraso = (latest_completed_week_end() - pd.Timestamp(ultima)).days
+        if atraso > 7:
+            logging.warning("[STATE] la última semana procesada es de hace %s días: "
+                            "hubo corridas semanales que no quedaron registradas", atraso)
+
+
 def mark_processed(meta: Dict, week_end: pd.Timestamp) -> Dict:
     meta = dict(meta)
     meta["last_processed_week"] = str(week_end.date())
@@ -798,6 +835,7 @@ def main() -> None:
     setup_logging()
     strategy = WeeklyTrendStrategy(build_config())
     logging.info("[BOOT] config=%s", strategy.cfg)
+    log_state_origin()
 
     run_weekly = should_run_weekly()
     if not run_weekly and not DAILY_STOP_CHECK:

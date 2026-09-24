@@ -12,7 +12,9 @@ from email.mime.text import MIMEText
 from pathlib import Path
 from typing import Dict, List
 
-TRADE_HISTORY_PATH = Path(os.getenv("TRADE_HISTORY_PATH", "data/trade_history.csv"))
+_hist = Path(os.getenv("TRADE_HISTORY_PATH", "data/trade_history.csv"))
+# Contra la carpeta del script, igual que el state: ver weekly_alpaca_bot_main.
+TRADE_HISTORY_PATH = _hist if _hist.is_absolute() else Path(__file__).resolve().parent / _hist
 
 _CSV_FIELDS = [
     "symbol", "entry_date", "entry_price", "initial_shares",

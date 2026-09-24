@@ -533,3 +533,74 @@ def test_posicion_adoptada_no_toma_parcial():
 
     assert rec["JPM"].notes.get("adoptado") is True
     assert rec["JPM"].partial_taken is True, "la adoptada quedaria habilitada a vender un tercio"
+
+
+# ── rutas y reparacion del state ─────────────────────────────────────────────
+def test_rutas_no_dependen_del_directorio_de_trabajo():
+    # Una tarea programada arranca donde diga su "Iniciar en". Con rutas
+    # relativas el bot podia usar un state distinto sin dar error.
+    from pathlib import Path
+    base = Path(bot.__file__).resolve().parent
+    assert bot.STATE_PATH.is_absolute() and base in bot.STATE_PATH.parents
+    assert bot.SYMBOLS_PATH.is_absolute() and base in bot.SYMBOLS_PATH.parents
+    import trade_tracker
+    assert trade_tracker.TRADE_HISTORY_PATH.is_absolute()
+
+
+def _pos(stop, pend=None, **kw):
+    from strategy_weekly_bot_ready import PositionState
+    return PositionState(symbol="MA", entry_date=pd.Timestamp("2026-08-03"),
+                         entry_price=582.55, shares=42, initial_shares=42,
+                         stop_price=stop, initial_stop_price=stop,
+                         risk_per_share=67.44, pending_stop_price=pend, **kw)
+
+
+def test_reparar_nunca_baja_un_stop_existente():
+    import reparar_state as R
+    # Reconstruido mas bajo que lo guardado: gana lo guardado.
+    p = R.combinar({"stop_price": 560.0, "pending_stop_price": 565.0}, _pos(540.0, 550.0))
+    assert p.stop_price == 560.0 and p.pending_stop_price == 565.0
+    # Reconstruido mas alto (el caso de MA): gana el reconstruido.
+    p = R.combinar({"stop_price": 523.61, "pending_stop_price": None}, _pos(578.71))
+    assert p.stop_price == 578.71
+    # Un parcial ya tomado no se habilita de nuevo.
+    p = R.combinar({"stop_price": 1.0, "partial_taken": True}, _pos(578.71))
+    assert p.partial_taken is True
+
+
+def test_reparar_reproduce_la_salida_que_el_bot_no_hizo():
+    import reparar_state as R
+    strat = WeeklyTrendStrategy(bot.build_config())
+    trail = strat.cfg.trail_mode
+    idx = pd.to_datetime(["2026-09-04", "2026-09-11", "2026-09-18"])
+    wk = pd.DataFrame({"High": [595.18, 575.67, 578.90], "Low": [578.71, 563.17, 561.90],
+                       "Adj Close": [590.0, 570.0, 565.24], "exit_signal": [False] * 3,
+                       trail: [561.26, 578.71, 578.71]}, index=idx)
+    # State de MA al cierre de agosto: stop 556.06 con el trailing en camino.
+    pos, salida = R.reproducir(strat, _pos(556.06, 556.06), wk, pd.Timestamp("2026-09-18"))
+    assert salida is not None and str(salida[0]) == "2026-09-18"
+    assert pos.stop_price == 578.71
+
+
+def test_lotes_abiertos_fifo():
+    import reparar_state as R
+    f = pd.DataFrame([
+        dict(symbol="QCOM", side="buy", qty=107, price=175.27, fecha=pd.Timestamp("2026-09-14")),
+        dict(symbol="QCOM", side="sell", qty=107, price=180.57, fecha=pd.Timestamp("2026-09-21")),
+        dict(symbol="AMD", side="buy", qty=11, price=585.45, fecha=pd.Timestamp("2026-09-21")),
+    ])
+    lotes = R.lotes_abiertos(f)
+    assert "QCOM" not in lotes
+    assert lotes["AMD"][0]["q"] == 11
+
+
+def test_reparar_usa_la_semana_de_la_ultima_corrida_no_la_del_state():
+    from datetime import datetime
+    import reparar_state as R
+    ny = bot.NY
+    # Miercoles: la corrida del lunes ya proceso la semana del viernes previo.
+    assert str(R.semana_de_la_ultima_corrida(
+        datetime(2026, 9, 24, 12, tzinfo=ny)).date()) == "2026-09-18"
+    # Lunes antes de que corra el bot: todavia vale la corrida anterior.
+    assert str(R.semana_de_la_ultima_corrida(
+        datetime(2026, 9, 21, 9, tzinfo=ny)).date()) == "2026-09-11"
