@@ -10,3 +10,9 @@ fills_raw.csv
 round_trips.csv
 backtest_bars.pkl
 informe_desempeno.pdf
+
+# El state vive fuera del repo (Volume de Railway o disco local). Versionarlo
+# hacia que Railway arrancara cada corrida con el state de junio.
+data/weekly_strategy_state.json
+data/weekly_strategy_state.backup-*.json
+data/state_respaldo_*.json

@@ -1,0 +1,125 @@
+{
+  "positions": {
+    "AMD": {
+      "symbol": "AMD",
+      "entry_date": "2026-09-21 00:00:00",
+      "entry_price": 585.446364,
+      "shares": 11,
+      "initial_shares": 11,
+      "stop_price": 440.5,
+      "initial_stop_price": 440.5,
+      "risk_per_share": 144.94636400000002,
+      "break_even_armed": false,
+      "partial_taken": false,
+      "pending_stop_price": null,
+      "notes": {}
+    },
+    "JPM": {
+      "symbol": "JPM",
+      "entry_date": "2026-08-07 00:00:00",
+      "entry_price": 327.0982,
+      "shares": 23,
+      "initial_shares": 23,
+      "stop_price": 350.84,
+      "initial_stop_price": 325.75,
+      "risk_per_share": 1.3482000000000198,
+      "break_even_armed": true,
+      "partial_taken": true,
+      "pending_stop_price": null,
+      "notes": {
+        "adoptado": true
+      }
+    },
+    "KO": {
+      "symbol": "KO",
+      "entry_date": "2026-08-03 00:00:00",
+      "entry_price": 87.8,
+      "shares": 216,
+      "initial_shares": 216,
+      "stop_price": 87.21,
+      "initial_stop_price": 80.83,
+      "risk_per_share": 6.97,
+      "break_even_armed": false,
+      "partial_taken": false,
+      "pending_stop_price": 87.21,
+      "notes": {}
+    },
+    "MA": {
+      "symbol": "MA",
+      "entry_date": "2026-08-03 00:00:00",
+      "entry_price": 582.545714,
+      "shares": 42,
+      "initial_shares": 42,
+      "stop_price": 578.71,
+      "initial_stop_price": 515.11,
+      "risk_per_share": 67.44,
+      "break_even_armed": false,
+      "partial_taken": false,
+      "pending_stop_price": 563.17,
+      "notes": {}
+    },
+    "META": {
+      "symbol": "META",
+      "entry_date": "2026-09-14 00:00:00",
+      "entry_price": 654.276923,
+      "shares": 13,
+      "initial_shares": 13,
+      "stop_price": 545.87,
+      "initial_stop_price": 536.85,
+      "risk_per_share": 117.42692299999999,
+      "break_even_armed": false,
+      "partial_taken": false,
+      "pending_stop_price": 555.66,
+      "notes": {}
+    },
+    "MRK": {
+      "symbol": "MRK",
+      "entry_date": "2026-08-24 00:00:00",
+      "entry_price": 150.14,
+      "shares": 1,
+      "initial_shares": 1,
+      "stop_price": 144.89,
+      "initial_stop_price": 125.48,
+      "risk_per_share": 24.659999999999982,
+      "break_even_armed": false,
+      "partial_taken": false,
+      "pending_stop_price": null,
+      "notes": {}
+    },
+    "MSFT": {
+      "symbol": "MSFT",
+      "entry_date": "2026-08-10 00:00:00",
+      "entry_price": 505.03,
+      "shares": 9,
+      "initial_shares": 9,
+      "stop_price": 481.86,
+      "initial_stop_price": 376.68,
+      "risk_per_share": 128.34999999999997,
+      "break_even_armed": false,
+      "partial_taken": false,
+      "pending_stop_price": 486.0,
+      "notes": {}
+    },
+    "V": {
+      "symbol": "V",
+      "entry_date": "2026-08-03 00:00:00",
+      "entry_price": 371.149714,
+      "shares": 70,
+      "initial_shares": 70,
+      "stop_price": 372.2143,
+      "initial_stop_price": 344.42,
+      "risk_per_share": 26.73,
+      "break_even_armed": false,
+      "partial_taken": false,
+      "pending_stop_price": 365.52,
+      "notes": {}
+    }
+  },
+  "meta": {
+    "last_processed_week": "2026-09-18",
+    "updated_at": "2026-09-23 18:00:12.720888-04:00",
+    "reconstruido_desde_fills": true,
+    "reparado": "2026-09-24 00:55:46.201479+00:00",
+    "semilla": "state local reparado, verificado contra el broker el 2026-09-25"
+  }
+}
