@@ -628,6 +628,29 @@ def test_descarta_la_barra_de_una_sesion_abierta():
     assert len(finde) == 1
 
 
+def test_chequeo_diario_ignora_la_sesion_abierta_pero_la_entrada_usa_su_apertura(monkeypatch):
+    from datetime import datetime
+    # Lunes 28-sep, 9:35 NY. QCOM cerro el viernes en 201.97 y abrio el lunes en
+    # 199.16; a esa hora cotizaba cerca de 187, debajo de un stop hipotetico de 190.
+    idx = pd.to_datetime(["2026-09-25", "2026-09-28"])
+    df = pd.DataFrame({"Open": [195.03, 199.16], "High": [202.0, 199.5],
+                       "Low": [194.53, 186.71], "Close": [201.97, 187.48],
+                       "Adj Close": [201.97, 187.48], "Volume": [1.0, 1.0]}, index=idx)
+    monkeypatch.setattr(bot, "now_ny", lambda: datetime(2026, 9, 28, 9, 35, tzinfo=bot.NY))
+    vendidas = []
+    monkeypatch.setattr(bot, "submit_market_order",
+                        lambda *a, **k: vendidas.append(a[1]) or None)
+    from strategy_weekly_bot_ready import PositionState
+    pos = PositionState(symbol="QCOM", entry_date=pd.Timestamp("2026-09-14"), entry_price=175.0,
+                        shares=10, initial_shares=10, stop_price=190.0,
+                        initial_stop_price=155.0, risk_per_share=20.0)
+    quedan, _ = bot.check_daily_stops(None, {"QCOM": df}, {"QCOM": pos}, {"QCOM": {"qty": 10}})
+    assert vendidas == [] and "QCOM" in quedan, "vendio por un precio intradia"
+    # La entrada, en cambio, se dimensiona con la apertura del lunes.
+    fecha, ref = bot.get_next_session_entry_price(df, pd.Timestamp("2026-09-25"))
+    assert str(fecha.date()) == "2026-09-28" and ref == 199.16
+
+
 def test_sin_barra_de_hoy_la_entrada_usa_el_ultimo_cierre():
     df = _barras(["2026-09-17", "2026-09-18"])
     ref = bot.get_next_session_entry_price(df, pd.Timestamp("2026-09-18"))

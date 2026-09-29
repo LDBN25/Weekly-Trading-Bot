@@ -4,6 +4,7 @@ import json
 import logging
 import math
 import os
+import sys
 import time
 from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
@@ -77,6 +78,9 @@ def setup_logging() -> None:
     logging.basicConfig(
         level=getattr(logging, LOG_LEVEL, logging.INFO),
         format="%(asctime)s | %(levelname)s | %(message)s",
+        # Railway marca todo lo que sale por stderr como error: el log entero
+        # aparecia en rojo y un ERROR real no se distinguia del resto.
+        stream=sys.stdout,
     )
 
 
@@ -201,7 +205,7 @@ def fetch_daily_bars(data_client: StockHistoricalDataClient, symbols: List[str])
     out: Dict[str, pd.DataFrame] = {}
     for symbol in symbols:
         symbol_bars = raw.data.get(symbol, [])
-        out[symbol] = drop_unfinished_session(bars_to_df(symbol_bars))
+        out[symbol] = bars_to_df(symbol_bars)
     return out
 
 
@@ -212,6 +216,11 @@ def drop_unfinished_session(df: pd.DataFrame, ahora: Optional[datetime] = None) 
     La barra diaria de hoy ya existe y su "cierre" es el precio de ese momento,
     así que el chequeo diario comparaba el stop contra un precio intradía: justo
     las mechas que la regla, definida sobre cierres, quiere ignorar.
+
+    Se aplica solo al chequeo de stops. La apertura de hoy sí es un dato firme y
+    es la mejor referencia para dimensionar una entrada: descartar la barra
+    entera hizo que QCOM se dimensionara con el cierre del viernes (201.97) en
+    vez de la apertura del lunes (199.16), 40 acciones en lugar de 43.
     """
     if df.empty:
         return df
@@ -486,6 +495,9 @@ def check_daily_stops(
         if df is None or df.empty:
             continue
         pos = updated[symbol]
+        df = drop_unfinished_session(df)
+        if df.empty:
+            continue
         last_close = float(df["Close"].iloc[-1])
         last_date = pd.Timestamp(df.index[-1])
         if last_close > pos.stop_price:

@@ -4,68 +4,83 @@
     "donde paper-api.alpaca.markets esta bloqueado por politica de egreso, asi",
     "que no puede leer patrimonio, efectivo ni posiciones en vivo. Parte de esta",
     "foto y reconstruye los stops replicando la estrategia semana a semana.",
-    "Actualizarla cada vez que se corra dump_estado.py."
+    "Actualizarla cada vez que se corra dump_estado.py.",
+    "Si una posicion trae 'ancla', el informe parte de ese state (el que el bot registro en su log) en vez de reconstruir desde la entrada."
   ],
-  "fecha": "2026-09-23",
-  "origen": "dump_estado.py --desde 2026-09-14",
-  "equity": 109538.86,
-  "cash": 12891.46,
+  "fecha": "2026-09-28",
+  "origen": "log de Railway, corrida del 2026-09-28 13:36 UTC",
+  "equity": null,
+  "cash": null,
   "posiciones": [
-    {
-      "symbol": "V",
-      "qty": 70,
-      "avg": 371.1497,
-      "entrada": "2026-08-03",
-      "adoptada": false
-    },
-    {
-      "symbol": "MA",
-      "qty": 42,
-      "avg": 582.5457,
-      "entrada": "2026-08-03",
-      "adoptada": false
-    },
-    {
-      "symbol": "KO",
-      "qty": 216,
-      "avg": 87.8,
-      "entrada": "2026-08-03",
-      "adoptada": false
-    },
     {
       "symbol": "META",
       "qty": 13,
       "avg": 654.2769,
       "entrada": "2026-09-14",
-      "adoptada": false
-    },
-    {
-      "symbol": "JPM",
-      "qty": 23,
-      "avg": 327.0982,
-      "entrada": "2026-08-10",
-      "adoptada": true
+      "adoptada": false,
+      "ancla": {
+        "stop": 555.66,
+        "pendiente": 654.276923,
+        "riesgo": 117.43,
+        "break_even": true,
+        "semana": "2026-09-25"
+      }
     },
     {
       "symbol": "AMD",
       "qty": 11,
       "avg": 585.4464,
       "entrada": "2026-09-21",
-      "adoptada": false
+      "adoptada": false,
+      "ancla": {
+        "stop": 440.5,
+        "pendiente": 480.33,
+        "riesgo": 144.95,
+        "break_even": false,
+        "semana": "2026-09-25"
+      }
+    },
+    {
+      "symbol": "QCOM",
+      "qty": 40,
+      "avg": 192.84,
+      "entrada": "2026-09-28",
+      "adoptada": false,
+      "ancla": {
+        "stop": 161.33,
+        "pendiente": null,
+        "riesgo": 31.51,
+        "break_even": false,
+        "semana": "2026-09-25"
+      }
     },
     {
       "symbol": "MSFT",
       "qty": 9,
       "avg": 505.03,
       "entrada": "2026-08-10",
-      "adoptada": false
+      "adoptada": false,
+      "ancla": {
+        "stop": 486.0,
+        "pendiente": 486.0,
+        "riesgo": 128.35,
+        "break_even": false,
+        "semana": "2026-09-25"
+      }
     },
     {
       "symbol": "MRK",
       "qty": 1,
       "avg": 150.14,
       "entrada": "2026-08-24",
-      "adoptada": false
+      "adoptada": false,
+      "ancla": {
+        "stop": 144.89,
+        "pendiente": 144.89,
+        "riesgo": 24.66,
+        "break_even": false,
+        "semana": "2026-09-25"
+      }
     }
   ]
 }

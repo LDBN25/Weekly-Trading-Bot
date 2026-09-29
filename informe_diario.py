@@ -21,32 +21,10 @@ import pandas as pd
 
 import weekly_alpaca_bot_main as bot
 from strategy_weekly_bot_ready import PositionState, WeeklyTrendStrategy
+from reparar_state import posicion_inicial, reproducir
 
 # Umbral para marcar una posicion como pegada al stop.
 CERCA_PCT = 3.0
-
-
-def replay_stop(strat, daily, weekly, pos: PositionState, hasta: pd.Timestamp):
-    """Reproduce el trailing semanal desde la entrada hasta la ultima semana.
-
-    Devuelve (posicion_al_dia, salida) donde salida es None si sigue abierta.
-    Es la misma secuencia que corre el bot: activar el stop pendiente, mirar si
-    la semana lo perforo, y recalcular el trailing para la siguiente.
-    """
-    entrada = pd.Timestamp(pos.entry_date).normalize()
-    for lab in [x for x in weekly.index if entrada < x <= hasta]:
-        pos = strat.activate_pending_stop(pos)
-        tramo = daily[(daily.index > lab - pd.Timedelta(days=7)) & (daily.index <= lab)]
-        golpe = tramo[tramo["Close"] <= pos.stop_price]
-        if not golpe.empty:
-            return pos, (golpe.index[0].date(), "stop intrasemanal",
-                         float(golpe.iloc[0]["Close"]))
-        d = strat.evaluate_position_week(pos, weekly.loc[lab])
-        if d["action"] == "exit_all":
-            return pos, (lab.date(), d.get("reason") or "salida",
-                         float(weekly.loc[lab]["Adj Close"]))
-        pos = strat.apply_week_transition(pos, d)
-    return strat.activate_pending_stop(pos), None
 
 
 def main() -> None:
@@ -120,19 +98,29 @@ def main() -> None:
         valor_t += valor
         costo_t += costo
 
+        # Las mismas reglas que el bot, no una aproximacion: stop inicial desde
+        # la semana de la senal y gestion semanal sobre el minimo de la semana.
+        # La version anterior tomaba el piso de la semana en curso y chequeaba
+        # cierres diarios, y marcaba salidas que el bot no hace (MRK).
         wk = wmap[s]
-        ent = pd.Timestamp(p["entrada"])
-        fila = wk[wk.index >= ent]
-        stop0 = float(fila.iloc[0]["box_low_prev"]) if not fila.empty else p["avg"] * 0.9
-        if pd.isna(stop0) or stop0 >= p["avg"]:
-            stop0 = p["avg"] * 0.9
-        pos = PositionState(
-            symbol=s, entry_date=ent, entry_price=p["avg"], shares=p["qty"],
-            initial_shares=p["qty"], stop_price=stop0, initial_stop_price=stop0,
-            risk_per_share=max(p["avg"] - stop0, 1e-9),
-            # Una adoptada no tiene R conocida: no le corresponde parcial.
-            partial_taken=bool(p.get("adoptada")))
-        pos, salida = replay_stop(strat, daily[s], wk, pos, semana)
+        a = p.get("ancla")
+        if a:
+            # Parte del state que el bot registro, y avanza solo las semanas
+            # posteriores: reconstruir desde la entrada puede marcar salidas
+            # historicas que el bot, por haber arrancado de una semilla, no hizo.
+            pos = PositionState(
+                symbol=s, entry_date=pd.Timestamp(a["semana"]), entry_price=float(p["avg"]),
+                shares=int(p["qty"]), initial_shares=int(p["qty"]),
+                stop_price=float(a["stop"]), initial_stop_price=float(a["stop"]),
+                risk_per_share=float(a["riesgo"]), break_even_armed=bool(a["break_even"]),
+                partial_taken=bool(p.get("adoptada")), pending_stop_price=a["pendiente"])
+        else:
+            lotes = [{"q": p["qty"], "p": p["avg"], "d": pd.Timestamp(p["entrada"])}]
+            pos, _ = posicion_inicial(strat, s, int(p["qty"]), float(p["avg"]), wk,
+                                      [] if p.get("adoptada") else lotes)
+        pos, salida = reproducir(strat, pos, wk, semana)
+        if not salida:
+            pos = strat.activate_pending_stop(pos)
 
         dist = (hoy / pos.stop_price - 1) * 100
         if salida:
