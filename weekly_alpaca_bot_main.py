@@ -731,6 +731,14 @@ def log_state_origin() -> None:
     desde afuera no había forma de saber qué state estaba leyendo el bot. Con
     esto queda en el log de cada corrida.
     """
+    # Railway define RAILWAY_VOLUME_MOUNT_PATH cuando hay un Volume. Si el state
+    # queda fuera de el, vive en el disco del contenedor y se pierde con cada
+    # deploy: paso el 29-sep, cuando un commit reemplazo el contenedor y el lunes
+    # siguiente el bot arranco otra vez desde la semilla.
+    volumen = os.getenv("RAILWAY_VOLUME_MOUNT_PATH")
+    if volumen and Path(volumen).resolve() not in STATE_PATH.resolve().parents:
+        logging.error("[STATE] %s está FUERA del Volume (%s): se pierde en el próximo "
+                      "deploy. Definir STATE_PATH dentro de %s.", STATE_PATH, volumen, volumen)
     if not STATE_PATH.exists():
         logging.warning("[STATE] %s no existe: se arranca con state vacío y se "
                         "adopta lo que haya en el broker", STATE_PATH)

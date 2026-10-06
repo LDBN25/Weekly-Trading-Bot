@@ -671,3 +671,17 @@ def test_semilla_inicializa_un_volume_vacio(tmp_path, monkeypatch):
     destino.write_text(json.dumps({"positions": {}, "meta": {"last_processed_week": "X"}}))
     bot.seed_state_if_missing()
     assert bot.load_state_raw()["meta"]["last_processed_week"] == "X"
+
+
+def test_avisa_si_el_state_queda_fuera_del_volume(tmp_path, monkeypatch, caplog):
+    import logging
+    monkeypatch.setenv("RAILWAY_VOLUME_MOUNT_PATH", str(tmp_path / "data"))
+    monkeypatch.setattr(bot, "STATE_PATH", tmp_path / "app" / "data" / "state.json")
+    with caplog.at_level(logging.ERROR):
+        bot.log_state_origin()
+    assert "FUERA del Volume" in caplog.text
+    caplog.clear()
+    monkeypatch.setattr(bot, "STATE_PATH", tmp_path / "data" / "state.json")
+    with caplog.at_level(logging.ERROR):
+        bot.log_state_origin()
+    assert "FUERA del Volume" not in caplog.text
