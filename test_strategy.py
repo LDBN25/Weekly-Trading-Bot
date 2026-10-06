@@ -685,3 +685,114 @@ def test_avisa_si_el_state_queda_fuera_del_volume(tmp_path, monkeypatch, caplog)
     with caplog.at_level(logging.ERROR):
         bot.log_state_origin()
     assert "FUERA del Volume" not in caplog.text
+
+
+# ── ventas diferidas (DEFER_EXITS) ───────────────────────────────────────────
+def _ny(h, m, dia=12):
+    from datetime import datetime
+    return datetime(2026, 10, dia, h, m, tzinfo=bot.NY)
+
+
+def _ma(stop=578.71, shares=42):
+    from strategy_weekly_bot_ready import PositionState
+    return PositionState(symbol="MA", entry_date=pd.Timestamp("2026-08-03"), entry_price=582.55,
+                         shares=shares, initial_shares=shares, stop_price=stop,
+                         initial_stop_price=515.11, risk_per_share=67.44)
+
+
+def test_diferir_solo_si_esta_activado_y_antes_de_la_hora(monkeypatch):
+    monkeypatch.setattr(bot, "DEFER_EXITS", False)
+    assert not bot.exits_must_wait(_ny(9, 35))
+    monkeypatch.setattr(bot, "DEFER_EXITS", True)
+    assert bot.exits_must_wait(_ny(9, 35))
+    assert not bot.exits_must_wait(_ny(10, 35))
+
+
+def test_chequeo_diario_agenda_la_venta_a_las_935(monkeypatch):
+    monkeypatch.setattr(bot, "DEFER_EXITS", True)
+    monkeypatch.setattr(bot, "now_ny", lambda: _ny(9, 35))
+    ordenes = []
+    monkeypatch.setattr(bot, "submit_market_order", lambda *a, **k: ordenes.append(a[1]))
+    idx = pd.to_datetime(["2026-10-09"])
+    df = pd.DataFrame({"Open": [570.0], "High": [571.0], "Low": [560.0], "Close": [565.0],
+                       "Adj Close": [565.0], "Volume": [1.0]}, index=idx)
+    pend = {}
+    quedan, log = bot.check_daily_stops(None, {"MA": df}, {"MA": _ma()}, {"MA": {"qty": 42}}, pend)
+    assert ordenes == [] and "MA" in quedan and log == []
+    assert pend["MA"]["qty"] is None and pend["MA"]["motivo_registro"] == "stop_diario"
+
+
+def test_pendiente_espera_a_la_hora_y_despues_vende(monkeypatch):
+    monkeypatch.setattr(bot, "DEFER_EXITS", True)
+    monkeypatch.setattr(bot, "_log_exit", lambda *a, **k: None)
+    ordenes = []
+    monkeypatch.setattr(bot, "submit_market_order",
+                        lambda t, s, q, side, reason: ordenes.append((s, q, reason)) or (566.0, q))
+    pend = {"MA": {"motivo_orden": "stopdia", "motivo_registro": "stop_diario", "qty": None,
+                   "modelado": 565.0, "fecha": "2026-10-09", "decidida": "2026-10-12"}}
+    broker = {"MA": {"qty": 42}}
+    # 9:40 del mismo dia: todavia no
+    monkeypatch.setattr(bot, "now_ny", lambda: _ny(9, 40))
+    quedan, _ = bot.execute_pending_exits(None, {"MA": _ma()}, broker, pend)
+    assert ordenes == [] and "MA" in quedan and "MA" in pend
+    # 10:35: vende todo y la saca del state
+    monkeypatch.setattr(bot, "now_ny", lambda: _ny(10, 35))
+    quedan, _ = bot.execute_pending_exits(None, {"MA": _ma()}, broker, pend)
+    assert ordenes == [("MA", 42, "stopdia")] and "MA" not in quedan and pend == {}
+
+
+def test_pendiente_de_un_dia_anterior_no_espera(monkeypatch):
+    monkeypatch.setattr(bot, "DEFER_EXITS", True)
+    monkeypatch.setattr(bot, "_log_exit", lambda *a, **k: None)
+    monkeypatch.setattr(bot, "now_ny", lambda: _ny(9, 35, dia=19))
+    ordenes = []
+    monkeypatch.setattr(bot, "submit_market_order",
+                        lambda t, s, q, side, reason: ordenes.append(s) or (566.0, q))
+    pend = {"MA": {"motivo_orden": "stop", "motivo_registro": "stop", "qty": None,
+                   "modelado": 565.0, "fecha": "2026-10-09", "decidida": "2026-10-12"}}
+    bot.execute_pending_exits(None, {"MA": _ma()}, {"MA": {"qty": 42}}, pend)
+    assert ordenes == ["MA"], "una salida que la estrategia ya decidio no puede quedar colgada"
+
+
+def test_parcial_diferido_reduce_acciones_al_ejecutarse(monkeypatch):
+    monkeypatch.setattr(bot, "DEFER_EXITS", True)
+    monkeypatch.setattr(bot, "_log_exit", lambda *a, **k: None)
+    monkeypatch.setattr(bot, "now_ny", lambda: _ny(10, 35))
+    monkeypatch.setattr(bot, "submit_market_order", lambda t, s, q, side, reason: (700.0, q))
+    pend = {"MA": {"motivo_orden": "partial", "motivo_registro": "partial_2.5R", "qty": 14,
+                   "modelado": 700.0, "fecha": "2026-10-09", "decidida": "2026-10-12"}}
+    quedan, _ = bot.execute_pending_exits(None, {"MA": _ma()}, {"MA": {"qty": 42}}, pend)
+    assert quedan["MA"].shares == 28 and pend == {}
+
+
+def test_ventas_agendadas_liberan_cupo_y_efectivo():
+    pend = {"MA": {"qty": None, "modelado": 565.0},
+            "META": {"qty": 4, "modelado": 700.0}}
+    cupos, efectivo = bot.capacity_from_pending(
+        {"MA": _ma(), "META": _ma(shares=13)}, pend, {"MA": {"qty": 42}, "META": {"qty": 13}})
+    assert cupos == 1                       # el parcial no libera cupo
+    assert efectivo == 42 * 565.0 + 4 * 700.0
+
+
+def test_gestion_semanal_agenda_la_salida_sin_vender(monkeypatch):
+    monkeypatch.setattr(bot, "DEFER_EXITS", True)
+    monkeypatch.setattr(bot, "now_ny", lambda: _ny(9, 35))
+    monkeypatch.setattr(bot, "submit_market_order", lambda *a, **k: (_ for _ in ()).throw(
+        AssertionError("no debia vender a las 9:35")))
+    strat = WeeklyTrendStrategy(bot.build_config())
+    we = pd.Timestamp("2026-10-09")
+    wk = pd.DataFrame({"High": [578.9], "Low": [561.9], "Adj Close": [565.2],
+                       "exit_signal": [False], strat.cfg.trail_mode: [563.17]}, index=[we])
+    pend = {}
+    quedan, log = bot.manage_open_positions(None, strat, {"MA": wk}, {"MA": _ma()}, we,
+                                            {"MA": {"qty": 42}}, pend)
+    assert "MA" in quedan and log == [] and pend["MA"]["motivo_orden"] == "stop"
+
+
+def test_no_opera_antes_de_la_apertura():
+    from datetime import datetime
+    # Invierno: 13:35 UTC son las 8:35 de Nueva York.
+    assert bot.before_market_open(datetime(2026, 11, 2, 8, 35, tzinfo=bot.NY))
+    assert not bot.before_market_open(datetime(2026, 11, 2, 9, 35, tzinfo=bot.NY))
+    # Un sabado temprano no es "antes de la apertura" de una sesion.
+    assert not bot.before_market_open(datetime(2026, 11, 7, 8, 0, tzinfo=bot.NY))

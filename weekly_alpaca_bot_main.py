@@ -61,6 +61,15 @@ DATA_FEED = os.getenv("ALPACA_DATA_FEED", "sip")
 # Revisa los stops contra el cierre diario en cada corrida, no solo una vez por
 # semana. Reduce la exposicion desprotegida de 5 sesiones a 1.
 DAILY_STOP_CHECK = os.getenv("DAILY_STOP_CHECK", "1") == "1"
+# Ventas diferidas. Medido sobre las 764 ejecuciones del backtest 2018-2026 con
+# barras de 1 minuto: una accion que perforo su stop sufre presion vendedora en
+# la apertura del lunes y recupera algo en la primera hora. Vender a las 10:30
+# en vez de a las 9:36 dio mejor precio en 7 de 9 anos (+21 pb de media en
+# lunes y martes). Las compras, en cambio, rinden mejor temprano: las rupturas
+# siguen subiendo. Con DEFER_EXITS=1 las salidas se deciden en la primera
+# corrida y se ejecutan desde EXIT_NOT_BEFORE (hora de Nueva York).
+DEFER_EXITS = os.getenv("DEFER_EXITS", "0") == "1"
+EXIT_NOT_BEFORE = os.getenv("EXIT_NOT_BEFORE", "10:30")
 # Adopta posiciones que estan en el broker pero no en el state, en vez de
 # dejarlas sin gestionar para siempre.
 ADOPT_ORPHANS = os.getenv("ADOPT_ORPHANS", "1") == "1"
@@ -140,6 +149,109 @@ def get_clients() -> Tuple[TradingClient, StockHistoricalDataClient]:
 
 def now_ny() -> datetime:
     return datetime.now(tz=NY)
+
+
+def before_market_open(ahora: Optional[datetime] = None) -> bool:
+    """¿Es un dia habil antes de la apertura de Nueva York?
+
+    El cron de Railway esta en UTC. Con el horario de invierno la corrida de las
+    13:35 UTC cae a las 8:35 de Nueva York: las ordenes quedan en cola hasta la
+    apertura, el bot no puede confirmarlas, y una compra sin fill confirmado no
+    entra al state y la semana siguiente se adopta con una R inventada.
+    """
+    ahora = ahora or now_ny()
+    return ahora.weekday() < 5 and (ahora.hour, ahora.minute) < (9, 31)
+
+
+def exits_must_wait(ahora: Optional[datetime] = None) -> bool:
+    """¿Hay que diferir las ventas en este momento?"""
+    if not DEFER_EXITS:
+        return False
+    ahora = ahora or now_ny()
+    h, m = (int(x) for x in EXIT_NOT_BEFORE.split(":"))
+    return (ahora.hour, ahora.minute) < (h, m)
+
+
+def schedule_exit(pendientes: Dict[str, Dict], symbol: str, motivo_orden: str,
+                  motivo_registro: str, modelado: float, fecha: pd.Timestamp,
+                  qty: Optional[int] = None) -> None:
+    """Anota una venta para ejecutarla desde EXIT_NOT_BEFORE.
+
+    qty None significa la posicion entera; un numero, una venta parcial.
+    """
+    pendientes[symbol] = {
+        "motivo_orden": motivo_orden,
+        "motivo_registro": motivo_registro,
+        "qty": qty,
+        "modelado": float(modelado),
+        "fecha": str(pd.Timestamp(fecha).date()),
+        "decidida": str(now_ny().date()),
+    }
+    logging.info("[DIFERIDA] %s %s qty=%s: se vende desde las %s NY",
+                 symbol, motivo_registro, "todo" if qty is None else qty, EXIT_NOT_BEFORE)
+
+
+def execute_pending_exits(
+    trading: TradingClient,
+    positions: Dict[str, PositionState],
+    broker: Dict[str, Dict],
+    pendientes: Dict[str, Dict],
+) -> Tuple[Dict[str, PositionState], List[Dict]]:
+    """Ejecuta las ventas diferidas cuyo horario ya llego.
+
+    Una pendiente de un dia anterior se ejecuta sin esperar: si las corridas de
+    la manana fallaron, no puede quedar abierta una posicion que la estrategia
+    ya cerro.
+    """
+    updated = dict(positions)
+    exits_log: List[Dict] = []
+    hoy = str(now_ny().date())
+    for symbol, p in list(pendientes.items()):
+        if exits_must_wait() and p.get("decidida") == hoy:
+            continue
+        live = int(math.floor(float(broker.get(symbol, {}).get("qty", 0))))
+        if symbol not in updated or live <= 0:
+            logging.info("[DIFERIDA] %s ya no esta en cartera; se descarta la pendiente", symbol)
+            del pendientes[symbol]
+            continue
+        pos = updated[symbol]
+        parcial = p.get("qty") is not None
+        qty = min(int(p["qty"]), max(0, live - 1)) if parcial else live
+        if qty <= 0:
+            del pendientes[symbol]
+            continue
+        fill = submit_market_order(trading, symbol, qty, OrderSide.SELL, reason=p["motivo_orden"])
+        _log_exit(symbol, pos, pd.Timestamp(p["fecha"]), qty, p["motivo_registro"],
+                  float(p["modelado"]), fill, parcial, exits_log)
+        if parcial:
+            vendidas = int(fill[1]) if fill else qty
+            pos.shares = max(0, pos.shares - vendidas)
+        else:
+            # Igual que en las salidas inmediatas: enviada la orden, sale del
+            # state aunque el fill no se confirme, para no venderla dos veces.
+            del updated[symbol]
+        del pendientes[symbol]
+    return updated, exits_log
+
+
+def capacity_from_pending(updated: Dict[str, PositionState], pendientes: Dict[str, Dict],
+                          broker: Dict[str, Dict]) -> Tuple[int, float]:
+    """Cupos y efectivo que liberan las ventas pendientes.
+
+    La estrategia ya decidio cerrar esas posiciones: no pueden ocupar un cupo
+    ni retener el efectivo de una compra que se hace antes de que se vendan.
+    """
+    cupos, efectivo = 0, 0.0
+    for symbol, p in pendientes.items():
+        if symbol not in updated:
+            continue
+        live = float(broker.get(symbol, {}).get("qty", updated[symbol].shares))
+        if p.get("qty") is None:
+            cupos += 1
+            efectivo += live * float(p["modelado"])
+        else:
+            efectivo += min(float(p["qty"]), live) * float(p["modelado"])
+    return cupos, efectivo
 
 
 def latest_completed_week_end(reference: Optional[datetime] = None) -> pd.Timestamp:
@@ -477,6 +589,7 @@ def check_daily_stops(
     daily_map: Dict[str, pd.DataFrame],
     positions: Dict[str, PositionState],
     broker: Dict[str, Dict],
+    pendientes: Optional[Dict[str, Dict]] = None,
 ) -> Tuple[Dict[str, PositionState], List[Dict]]:
     """Cierra posiciones cuyo cierre diario perforó el stop.
 
@@ -491,6 +604,8 @@ def check_daily_stops(
         return updated, exits_log
 
     for symbol in list(updated.keys()):
+        if pendientes and symbol in pendientes:
+            continue  # ya tiene una venta agendada
         df = daily_map.get(symbol)
         if df is None or df.empty:
             continue
@@ -512,6 +627,9 @@ def check_daily_stops(
         logging.warning(
             "[STOP_DIARIO] %s cierre=%.4f <= stop=%.4f → salida", symbol, last_close, pos.stop_price
         )
+        if pendientes is not None and exits_must_wait():
+            schedule_exit(pendientes, symbol, "stopdia", "stop_diario", last_close, last_date)
+            continue
         fill = submit_market_order(trading, symbol, qty, OrderSide.SELL, reason="stopdia")
         # La orden se envió: sale del state aunque el fill no se haya confirmado
         # a tiempo. Conservarla llevaba a que la lógica semanal la vendiera otra
@@ -529,11 +647,16 @@ def manage_open_positions(
     positions: Dict[str, PositionState],
     week_end: pd.Timestamp,
     broker: Dict[str, Dict],
+    pendientes: Optional[Dict[str, Dict]] = None,
 ) -> Tuple[Dict[str, PositionState], List[Dict]]:
     updated = dict(positions)
     exits_log: List[Dict] = []
+    diferir = pendientes is not None and exits_must_wait()
 
     for symbol in list(updated.keys()):
+        if pendientes and symbol in pendientes:
+            logging.info("[MANAGE] %s omitido: tiene una venta agendada", symbol)
+            continue
         if symbol in _ORDENES_ENVIADAS:
             # Ya lo tocó la revisión diaria de stops en esta misma corrida.
             logging.info("[MANAGE] %s omitido: ya tuvo orden esta corrida", symbol)
@@ -584,6 +707,10 @@ def manage_open_positions(
                 continue
 
             reason = decision.get("reason", "exit_all")
+            if diferir:
+                schedule_exit(pendientes, symbol, reason, reason, float(row["Adj Close"]), week_end)
+                updated[symbol] = pos
+                continue
             # El precio modelado es el último que la estrategia vio al decidir,
             # no el nivel del stop: el stop se dispara con el mínimo semanal
             # pero la orden se ejecuta días después a mercado. Usar el stop
@@ -598,7 +725,10 @@ def manage_open_positions(
             live_qty = float(broker.get(symbol, {}).get("qty", pos.shares))
             base_qty = int(math.floor(live_qty))
             qty = max(1, min(int(decision["qty"]), max(0, base_qty - 1))) if base_qty > 1 else 0
-            if qty > 0:
+            if qty > 0 and diferir:
+                schedule_exit(pendientes, symbol, "partial", decision.get("reason", "partial"),
+                              float(row["Adj Close"]), week_end, qty=qty)
+            elif qty > 0:
                 modeled = float(row["Adj Close"])
                 fill = submit_market_order(trading, symbol, qty, OrderSide.SELL, reason="partial")
                 if fill is None and not DRY_RUN:
@@ -627,6 +757,7 @@ def open_new_positions(
     week_end: pd.Timestamp,
     bench_weekly: Optional[pd.DataFrame] = None,
     broker: Optional[Dict[str, Dict]] = None,
+    pendientes: Optional[Dict[str, Dict]] = None,
 ) -> Tuple[Dict[str, PositionState], List[Dict]]:
     if not ALLOW_NEW_ENTRIES:
         return positions, []
@@ -639,7 +770,12 @@ def open_new_positions(
         return updated, entries_log
 
     equity, cash = get_account_snapshot(trading)
-    slots = max(0, strategy.cfg.max_positions - len(updated))
+    cupos_lib, efectivo_lib = capacity_from_pending(updated, pendientes or {}, broker or {})
+    if cupos_lib or efectivo_lib:
+        logging.info("[ENTRY] Ventas agendadas liberan %s cupos y ~%.2f de efectivo",
+                     cupos_lib, efectivo_lib)
+    cash += efectivo_lib
+    slots = max(0, strategy.cfg.max_positions - len(updated) + cupos_lib)
     if slots <= 0:
         logging.info("[ENTRY] Sin slots disponibles")
         return updated, entries_log
@@ -889,8 +1025,14 @@ def main() -> None:
     seed_state_if_missing()
     log_state_origin()
 
+    if before_market_open():
+        logging.info("[SKIP] %s NY: el mercado todavía no abrió; opera la corrida siguiente.",
+                     now_ny().strftime("%H:%M"))
+        return
+
     run_weekly = should_run_weekly()
-    if not run_weekly and not DAILY_STOP_CHECK:
+    hay_pendientes = bool(load_state_raw().get("meta", {}).get("salidas_pendientes"))
+    if not run_weekly and not DAILY_STOP_CHECK and not hay_pendientes:
         logging.info("[SKIP] Semana ya procesada y la revisión diaria está apagada.")
         return
 
@@ -911,7 +1053,12 @@ def main() -> None:
 
     positions_before = {sym: PositionState(**asdict(pos)) for sym, pos in positions.items()}
 
-    positions, exits_log = check_daily_stops(trading, daily_map, positions, broker)
+    pendientes = meta.setdefault("salidas_pendientes", {})
+    positions, exits_log = execute_pending_exits(trading, positions, broker, pendientes)
+    if exits_log:
+        broker = get_broker_positions(trading)
+    positions, diarias = check_daily_stops(trading, daily_map, positions, broker, pendientes)
+    exits_log.extend(diarias)
 
     entries_log: List[Dict] = []
     if run_weekly:
@@ -922,12 +1069,12 @@ def main() -> None:
         else:
             broker = get_broker_positions(trading)
             positions, weekly_exits = manage_open_positions(
-                trading, strategy, weekly_map, positions, week_end, broker
+                trading, strategy, weekly_map, positions, week_end, broker, pendientes
             )
             exits_log.extend(weekly_exits)
             positions, entries_log = open_new_positions(
                 trading, strategy, daily_map, weekly_map, positions, week_end,
-                bench_weekly, broker,
+                bench_weekly, broker, pendientes,
             )
             meta = mark_processed(meta, week_end)
 
