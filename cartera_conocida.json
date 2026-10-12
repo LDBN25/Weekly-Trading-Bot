@@ -7,8 +7,8 @@
     "Actualizarla cada vez que se corra dump_estado.py.",
     "Si una posicion trae 'ancla', el informe parte de ese state (el que el bot registro en su log) en vez de reconstruir desde la entrada."
   ],
-  "fecha": "2026-10-05",
-  "origen": "log de Railway, corrida del 2026-10-05 13:37 UTC",
+  "fecha": "2026-10-12",
+  "origen": "log de Railway, corrida del 2026-10-12 13:39 UTC (primer state en el Volume /data)",
   "equity": null,
   "cash": null,
   "posiciones": [
@@ -20,10 +20,10 @@
       "adoptada": false,
       "ancla": {
         "stop": 480.33,
-        "pendiente": 480.33,
+        "pendiente": 582.27,
         "riesgo": 144.95,
         "break_even": false,
-        "semana": "2026-10-02"
+        "semana": "2026-10-09"
       }
     },
     {
@@ -34,10 +34,10 @@
       "adoptada": false,
       "ancla": {
         "stop": 654.276923,
-        "pendiente": 654.276923,
+        "pendiente": 679.6,
         "riesgo": 117.43,
         "break_even": true,
-        "semana": "2026-10-02"
+        "semana": "2026-10-09"
       }
     },
     {
@@ -47,25 +47,11 @@
       "entrada": "2026-08-10",
       "adoptada": false,
       "ancla": {
-        "stop": 486.0,
-        "pendiente": 487.23,
+        "stop": 487.23,
+        "pendiente": 491.22,
         "riesgo": 128.35,
         "break_even": false,
-        "semana": "2026-10-02"
-      }
-    },
-    {
-      "symbol": "QCOM",
-      "qty": 40,
-      "avg": 192.84,
-      "entrada": "2026-09-28",
-      "adoptada": false,
-      "ancla": {
-        "stop": 161.33,
-        "pendiente": 170.51,
-        "riesgo": 31.51,
-        "break_even": false,
-        "semana": "2026-10-02"
+        "semana": "2026-10-09"
       }
     },
     {
@@ -76,10 +62,38 @@
       "adoptada": false,
       "ancla": {
         "stop": 208.93,
-        "pendiente": null,
+        "pendiente": 221.09,
         "riesgo": 27.83,
         "break_even": false,
-        "semana": "2026-10-02"
+        "semana": "2026-10-09"
+      }
+    },
+    {
+      "symbol": "ABBV",
+      "qty": 82,
+      "avg": 277.48,
+      "entrada": "2026-10-12",
+      "adoptada": false,
+      "ancla": {
+        "stop": 257.795,
+        "pendiente": null,
+        "riesgo": 19.685,
+        "break_even": false,
+        "semana": "2026-10-09"
+      }
+    },
+    {
+      "symbol": "PM",
+      "qty": 94,
+      "avg": 202.1061,
+      "entrada": "2026-10-12",
+      "adoptada": false,
+      "ancla": {
+        "stop": 184.26,
+        "pendiente": null,
+        "riesgo": 17.8461,
+        "break_even": false,
+        "semana": "2026-10-09"
       }
     }
   ]
