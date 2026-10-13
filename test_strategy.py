@@ -796,3 +796,14 @@ def test_no_opera_antes_de_la_apertura():
     assert not bot.before_market_open(datetime(2026, 11, 2, 9, 35, tzinfo=bot.NY))
     # Un sabado temprano no es "antes de la apertura" de una sesion.
     assert not bot.before_market_open(datetime(2026, 11, 7, 8, 0, tzinfo=bot.NY))
+
+
+def test_informe_marca_stop_tocado_por_el_minimo_aunque_cierre_arriba():
+    from informe_diario import toque_en_semana_en_curso
+    idx = pd.to_datetime(["2026-10-09", "2026-10-12", "2026-10-13"])
+    df = pd.DataFrame({"Low": [560.0, 586.54, 570.60], "Close": [590.0, 594.24, 605.53]},
+                      index=idx)
+    semana = pd.Timestamp("2026-10-09")
+    # El minimo del viernes es de la semana ya procesada: no cuenta.
+    assert toque_en_semana_en_curso(df, semana, 582.27) == ("2026-10-13", 570.60)
+    assert toque_en_semana_en_curso(df, semana, 560.0) is None

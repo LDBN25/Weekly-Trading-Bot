@@ -27,6 +27,15 @@ from reparar_state import posicion_inicial, reproducir
 CERCA_PCT = 3.0
 
 
+def toque_en_semana_en_curso(df: pd.DataFrame, semana: pd.Timestamp, stop: float):
+    """Primera rueda posterior a `semana` cuyo minimo toca `stop`: (fecha, minimo) o None."""
+    curso = df[df.index.normalize() > semana.normalize()]
+    tocadas = curso[curso["Low"] <= stop]
+    if tocadas.empty:
+        return None
+    return str(tocadas.index[0].date()), float(tocadas["Low"].iloc[0])
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--cartera", default="cartera_conocida.json")
@@ -123,9 +132,17 @@ def main() -> None:
             pos = strat.activate_pending_stop(pos)
 
         dist = (hoy / pos.stop_price - 1) * 100
+        # El bot vende si el MINIMO de la semana toca el stop, no el cierre. Una
+        # vez tocado, la venta del lunes queda decidida aunque la accion se
+        # recupere: mirar solo el cierre lo ocultaba (AMD, 13-oct).
+        toque = toque_en_semana_en_curso(daily[s], semana, pos.stop_price)
         if salida:
             estado = f"SALIDA {salida[0]} por {salida[1]} @ {salida[2]:.2f}"
             alertas.append(f"{s}: la estrategia ya la daba cerrada el {salida[0]} ({salida[1]})")
+        elif toque:
+            estado = f"STOP TOCADO {toque[0]} (min {toque[1]:.2f})"
+            alertas.append(f"{s}: el minimo del {toque[0]} ({toque[1]:.2f}) toco el stop "
+                           f"{pos.stop_price:.2f}; la estrategia vende en la corrida del lunes")
         elif dist <= 0:
             estado = "STOP PERFORADO"
             alertas.append(f"{s}: cotiza {abs(dist):.2f}% POR DEBAJO del stop {pos.stop_price:.2f}")
