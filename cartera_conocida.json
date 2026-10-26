@@ -7,25 +7,11 @@
     "Actualizarla cada vez que se corra dump_estado.py.",
     "Si una posicion trae 'ancla', el informe parte de ese state (el que el bot registro en su log) en vez de reconstruir desde la entrada."
   ],
-  "fecha": "2026-10-19",
-  "origen": "log de Railway, corrida del 2026-10-19 13:35 UTC",
+  "fecha": "2026-10-26",
+  "origen": "log de Railway, corrida del 2026-10-26 13:38 UTC",
   "equity": null,
   "cash": null,
   "posiciones": [
-    {
-      "symbol": "META",
-      "qty": 13,
-      "avg": 654.2769,
-      "entrada": "2026-09-14",
-      "adoptada": false,
-      "ancla": {
-        "stop": 679.6,
-        "pendiente": 711.6832,
-        "riesgo": 117.43,
-        "break_even": true,
-        "semana": "2026-10-16"
-      }
-    },
     {
       "symbol": "MSFT",
       "qty": 9,
@@ -33,11 +19,11 @@
       "entrada": "2026-08-10",
       "adoptada": false,
       "ancla": {
-        "stop": 491.22,
-        "pendiente": 502.22,
+        "stop": 502.22,
+        "pendiente": 518.79,
         "riesgo": 128.35,
         "break_even": false,
-        "semana": "2026-10-16"
+        "semana": "2026-10-23"
       }
     },
     {
@@ -48,24 +34,10 @@
       "adoptada": false,
       "ancla": {
         "stop": 257.795,
-        "pendiente": 257.795,
+        "pendiente": 258.7,
         "riesgo": 19.685,
         "break_even": false,
-        "semana": "2026-10-16"
-      }
-    },
-    {
-      "symbol": "PM",
-      "qty": 94,
-      "avg": 202.1061,
-      "entrada": "2026-10-12",
-      "adoptada": false,
-      "ancla": {
-        "stop": 184.26,
-        "pendiente": 184.26,
-        "riesgo": 17.8461,
-        "break_even": false,
-        "semana": "2026-10-16"
+        "semana": "2026-10-23"
       }
     },
     {
@@ -76,10 +48,10 @@
       "adoptada": false,
       "ancla": {
         "stop": 544.58,
-        "pendiente": null,
+        "pendiente": 550.32,
         "riesgo": 71.05,
         "break_even": false,
-        "semana": "2026-10-16"
+        "semana": "2026-10-23"
       }
     },
     {
@@ -90,10 +62,10 @@
       "adoptada": false,
       "ancla": {
         "stop": 356.75,
-        "pendiente": null,
+        "pendiente": 359.05,
         "riesgo": 44.9776,
         "break_even": false,
-        "semana": "2026-10-16"
+        "semana": "2026-10-23"
       }
     },
     {
@@ -104,10 +76,10 @@
       "adoptada": false,
       "ancla": {
         "stop": 101.15,
-        "pendiente": null,
+        "pendiente": 101.32,
         "riesgo": 8.44,
         "break_even": false,
-        "semana": "2026-10-16"
+        "semana": "2026-10-23"
       }
     },
     {
@@ -118,10 +90,38 @@
       "adoptada": false,
       "ancla": {
         "stop": 85.13,
-        "pendiente": null,
+        "pendiente": 85.13,
         "riesgo": 8.35,
         "break_even": false,
-        "semana": "2026-10-16"
+        "semana": "2026-10-23"
+      }
+    },
+    {
+      "symbol": "BRK.B",
+      "qty": 34,
+      "avg": 544.02,
+      "entrada": "2026-10-26",
+      "adoptada": false,
+      "ancla": {
+        "stop": 495.96,
+        "pendiente": null,
+        "riesgo": 48.06,
+        "break_even": false,
+        "semana": "2026-10-23"
+      }
+    },
+    {
+      "symbol": "IBM",
+      "qty": 34,
+      "avg": 253.99,
+      "entrada": "2026-10-26",
+      "adoptada": false,
+      "ancla": {
+        "stop": 217.795,
+        "pendiente": null,
+        "riesgo": 36.195,
+        "break_even": false,
+        "semana": "2026-10-23"
       }
     }
   ]
