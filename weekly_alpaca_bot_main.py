@@ -81,6 +81,11 @@ FILL_POLL_ATTEMPTS = int(os.getenv("FILL_POLL_ATTEMPTS", "20"))
 # Simbolos con una orden ya enviada en esta corrida. Reintentar una venta es
 # mucho peor que asumirla enviada: duplicarla abre un corto.
 _ORDENES_ENVIADAS: set = set()
+# Ordenes que siguen vivas en el broker al cortar la espera: pueden llenarse
+# despues. Una compra asi tiene que ocupar cupo y efectivo igual que una
+# confirmada; el 2 de noviembre TSLA y LIN no lo hicieron, el bot siguio
+# comprando y quedo con 11 posiciones y el efectivo excedido.
+_ORDENES_VIVAS: set = set()
 
 
 def setup_logging() -> None:
@@ -493,6 +498,7 @@ def submit_market_order(
             return None
         time.sleep(FILL_POLL_SECONDS)
 
+    _ORDENES_VIVAS.add(symbol)
     if parcial:
         logging.warning(
             "[ORDER] %s sin estado terminal tras %.0fs; se registra lo ejecutado: %s de %s",
@@ -758,6 +764,7 @@ def open_new_positions(
     bench_weekly: Optional[pd.DataFrame] = None,
     broker: Optional[Dict[str, Dict]] = None,
     pendientes: Optional[Dict[str, Dict]] = None,
+    sin_confirmar: Optional[Dict[str, Dict]] = None,
 ) -> Tuple[Dict[str, PositionState], List[Dict]]:
     if not ALLOW_NEW_ENTRIES:
         return positions, []
@@ -811,9 +818,26 @@ def open_new_positions(
             logging.info("[ENTRY] %s descartado por sizing/stop inválido", symbol)
             continue
 
-        fill = submit_market_order(trading, symbol, int(model_pos.shares), OrderSide.BUY, reason="entry")
+        pedidas = int(model_pos.shares)
+        fill = submit_market_order(trading, symbol, pedidas, OrderSide.BUY, reason="entry")
         if fill is None and not DRY_RUN:
-            logging.warning("[ENTRY] %s sin fill confirmado; no se agrega al state", symbol)
+            if symbol not in _ORDENES_VIVAS:
+                logging.warning("[ENTRY] %s sin ejecutar; no se agrega al state", symbol)
+                continue
+            # Sigue viva en el broker: reserva cupo y efectivo, y deja el stop de
+            # la señal para que la reconciliación la adopte como entrada propia.
+            if sin_confirmar is not None:
+                sin_confirmar[symbol] = {
+                    "stop": float(model_pos.stop_price),
+                    "fecha": str(now_ny().date()),
+                }
+            slots -= 1
+            cash -= pedidas * model_pos.entry_price
+            logging.warning(
+                "[ENTRY] %s sin fill confirmado; se reserva cupo y ~%.2f de efectivo, "
+                "y la próxima corrida la adopta con stop %.4f",
+                symbol, pedidas * model_pos.entry_price, model_pos.stop_price,
+            )
             continue
 
         # Realinear la posición con lo realmente ejecutado: si se usa el precio
@@ -829,7 +853,9 @@ def open_new_positions(
 
         updated[symbol] = model_pos
         slots -= 1
-        cash -= model_pos.shares * model_pos.entry_price
+        # Lo pedido, no lo llenado: el resto de una orden parcial sigue vivo
+        # (LLY, 2 de 3) y termina gastando ese efectivo igual.
+        cash -= max(pedidas, model_pos.shares) * model_pos.entry_price
         entries_log.append({
             "symbol": symbol,
             "entry_price": model_pos.entry_price,
@@ -949,9 +975,11 @@ def reconcile_state_with_broker(
     broker: Dict[str, Dict],
     weekly_map: Optional[Dict[str, pd.DataFrame]] = None,
     week_end: Optional[pd.Timestamp] = None,
+    sin_confirmar: Optional[Dict[str, Dict]] = None,
 ) -> Dict[str, PositionState]:
     reconciled: Dict[str, PositionState] = {}
     removed = []
+    sin_confirmar = sin_confirmar if sin_confirmar is not None else {}
 
     for symbol, pos in positions.items():
         live = broker.get(symbol)
@@ -973,6 +1001,29 @@ def reconcile_state_with_broker(
     for symbol, live in broker.items():
         if symbol in reconciled or symbol == BENCHMARK or live["qty"] <= 0:
             continue
+        rec = sin_confirmar.pop(symbol, None)
+        if rec is not None:
+            # Una compra propia que llenó después de cortar la espera: se conoce
+            # su stop, así que entra como cualquier entrada, con su R y su parcial.
+            entry = float(live["avg_entry_price"])
+            stop = float(rec["stop"])
+            if stop < entry:
+                qty = int(math.floor(live["qty"]))
+                reconciled[symbol] = PositionState(
+                    symbol=symbol,
+                    entry_date=pd.Timestamp(rec["fecha"]),
+                    entry_price=entry,
+                    shares=qty,
+                    initial_shares=qty,
+                    stop_price=stop,
+                    initial_stop_price=stop,
+                    risk_per_share=entry - stop,
+                )
+                logging.warning(
+                    "[RECON] ENTRADA CONFIRMADA %s qty=%s entrada=%.4f stop=%.4f",
+                    symbol, qty, entry, stop,
+                )
+                continue
         if not ADOPT_ORPHANS or weekly_map is None or week_end is None:
             logging.warning(
                 "[RECON] HUÉRFANO: %s en broker (qty=%s) pero no en state. Revisión manual requerida.",
@@ -1012,6 +1063,13 @@ def reconcile_state_with_broker(
             symbol, reconciled[symbol].shares, entry, stop,
         )
 
+    # Una compra sin confirmar que no aparece en el broker no llenó. Son órdenes
+    # DAY: pasado su día ya no pueden llenarse y el registro se descarta.
+    hoy = str(now_ny().date())
+    for symbol in [s for s, r in sin_confirmar.items() if r.get("fecha", hoy) < hoy]:
+        logging.warning("[RECON] %s: la compra sin confirmar no llenó; se descarta.", symbol)
+        sin_confirmar.pop(symbol)
+
     if removed:
         logging.warning("[RECON] Posiciones eliminadas del state: %s", removed)
     logging.info("[RECON] Reconciliación completa. State válido: %s", list(reconciled.keys()))
@@ -1048,7 +1106,8 @@ def main() -> None:
 
     positions, meta = load_state()
     broker = get_broker_positions(trading)
-    positions = reconcile_state_with_broker(positions, broker, weekly_map, week_end)
+    sin_confirmar = meta.setdefault("entradas_sin_confirmar", {})
+    positions = reconcile_state_with_broker(positions, broker, weekly_map, week_end, sin_confirmar)
     logging.info("[STATE] posiciones actuales=%s", list(positions.keys()))
 
     positions_before = {sym: PositionState(**asdict(pos)) for sym, pos in positions.items()}
@@ -1074,7 +1133,7 @@ def main() -> None:
             exits_log.extend(weekly_exits)
             positions, entries_log = open_new_positions(
                 trading, strategy, daily_map, weekly_map, positions, week_end,
-                bench_weekly, broker, pendientes,
+                bench_weekly, broker, pendientes, sin_confirmar,
             )
             meta = mark_processed(meta, week_end)
 

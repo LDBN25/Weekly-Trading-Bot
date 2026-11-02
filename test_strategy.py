@@ -807,3 +807,90 @@ def test_informe_marca_stop_tocado_por_el_minimo_aunque_cierre_arriba():
     # El minimo del viernes es de la semana ya procesada: no cuenta.
     assert toque_en_semana_en_curso(df, semana, 582.27) == ("2026-10-13", 570.60)
     assert toque_en_semana_en_curso(df, semana, 560.0) is None
+
+
+def _entradas_2_nov(monkeypatch, vivas):
+    """Lunes 2-nov: 3 cupos, 4 candidatos y ~4.9k de efectivo, como en Railway."""
+    from datetime import datetime
+    from strategy_weekly_bot_ready import PositionState
+
+    class Strat:
+        cfg = StrategyConfig()
+
+        def regime_ok(self, *a):
+            return True
+
+        def sector_slot_available(self, *a):
+            return True
+
+        def build_position(self, symbol, fecha, precio, row, equity, cash):
+            stop = precio * 0.85
+            qty = min(int(equity * 0.015 // (precio - stop)), int(cash // precio))
+            if qty <= 0:
+                return None
+            return PositionState(symbol=symbol, entry_date=fecha, entry_price=precio,
+                                 shares=qty, initial_shares=qty, stop_price=stop,
+                                 initial_stop_price=stop, risk_per_share=precio - stop)
+
+    precios = {"LLY": 1394.0, "TSLA": 408.0, "LIN": 519.0, "XOM": 181.8}
+    enviadas = []
+
+    def submit(t, s, q, side, reason):
+        enviadas.append((s, q))
+        if s in vivas:
+            bot._ORDENES_VIVAS.add(s)
+            return None
+        return (precios[s], q)
+
+    monkeypatch.setattr(bot, "DRY_RUN", False)
+    monkeypatch.setattr(bot, "ALLOW_NEW_ENTRIES", True)
+    monkeypatch.setattr(bot, "_ORDENES_VIVAS", set())
+    monkeypatch.setattr(bot, "now_ny", lambda: datetime(2026, 11, 2, 9, 35, tzinfo=bot.NY))
+    monkeypatch.setattr(bot, "submit_market_order", submit)
+    monkeypatch.setattr(bot, "get_account_snapshot", lambda t: (110_000.0, 4_900.0))
+    monkeypatch.setattr(bot, "get_pending_order_symbols", lambda t: set())
+    monkeypatch.setattr(bot, "score_candidates",
+                        lambda *a: [(s, 1.0, None) for s in precios])
+    monkeypatch.setattr(bot, "get_next_session_entry_price",
+                        lambda df, we: (pd.Timestamp("2026-11-02"), precios[df]))
+    tenidas = {f"P{i}": None for i in range(7)}
+    sin_confirmar = {}
+    nuevas, _ = bot.open_new_positions(None, Strat(), {s: s for s in precios}, {}, tenidas,
+                                       pd.Timestamp("2026-10-30"), sin_confirmar=sin_confirmar)
+    return enviadas, nuevas, sin_confirmar
+
+
+def test_compra_sin_confirmar_ocupa_cupo_y_efectivo(monkeypatch):
+    """El 2-nov TSLA y LIN no confirmaron en 40s, el bot siguio comprando XOM y
+    termino con 11 posiciones y el efectivo excedido."""
+    enviadas, nuevas, sin_confirmar = _entradas_2_nov(monkeypatch, vivas={"TSLA", "LIN"})
+    precios = {"LLY": 1394.0, "TSLA": 408.0, "LIN": 519.0, "XOM": 181.8}
+    gastado = sum(q * precios[s] for s, q in enviadas)
+    assert len(enviadas) <= 3, f"mando {len(enviadas)} compras con 3 cupos"
+    assert gastado <= 4_900.0 + 1e-6, f"comprometio {gastado:.0f} con 4900 de efectivo"
+    assert set(sin_confirmar) <= {"TSLA", "LIN"}
+    assert not (set(sin_confirmar) & set(nuevas)), "una sin confirmar no entra al state todavia"
+
+
+def test_compra_rechazada_no_ocupa_cupo(monkeypatch):
+    # Una orden terminal sin ejecutar no esta viva: el cupo queda para la siguiente.
+    enviadas, nuevas, sin_confirmar = _entradas_2_nov(monkeypatch, vivas=set())
+    assert sin_confirmar == {}
+    assert [s for s, _ in enviadas] == [s for s in nuevas if not s.startswith("P")]
+
+
+def test_reconciliacion_adopta_compra_sin_confirmar_con_su_stop(monkeypatch):
+    from datetime import datetime
+    monkeypatch.setattr(bot, "now_ny", lambda: datetime(2026, 11, 2, 10, 35, tzinfo=bot.NY))
+    week_end = pd.Timestamp("2026-10-30")
+    weekly = pd.DataFrame({"box_low_prev": [300.0]}, index=[week_end])
+    broker = {"TSLA": {"qty": 4, "avg_entry_price": 408.525}}
+    sin_confirmar = {"TSLA": {"stop": 349.33, "fecha": "2026-11-02"},
+                     "LIN": {"stop": 476.58, "fecha": "2026-10-26"}}
+    rec = bot.reconcile_state_with_broker({}, broker, {"TSLA": weekly}, week_end, sin_confirmar)
+    tsla = rec["TSLA"]
+    assert tsla.stop_price == 349.33 and tsla.partial_taken is False
+    assert str(tsla.entry_date.date()) == "2026-11-02"
+    assert tsla.risk_per_share == pytest.approx(408.525 - 349.33)
+    # TSLA ya entro; LIN era de un dia anterior y no esta en el broker: no lleno.
+    assert sin_confirmar == {}
