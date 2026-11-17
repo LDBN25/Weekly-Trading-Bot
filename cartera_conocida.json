@@ -7,8 +7,8 @@
     "Actualizarla cada vez que se corra dump_estado.py.",
     "Si una posicion trae 'ancla', el informe parte de ese state (el que el bot registro en su log) en vez de reconstruir desde la entrada."
   ],
-  "fecha": "2026-11-09",
-  "origen": "log de Railway, corridas del 2026-11-09 14:37 y 15:38 UTC",
+  "fecha": "2026-11-16",
+  "origen": "log de Railway, corrida del 2026-11-16 14:37 UTC",
   "equity": null,
   "cash": null,
   "posiciones": [
@@ -19,11 +19,11 @@
       "entrada": "2026-10-12",
       "adoptada": false,
       "ancla": {
-        "stop": 277.48,
-        "pendiente": 278.01,
+        "stop": 278.01,
+        "pendiente": 281.07,
         "riesgo": 19.685,
         "break_even": true,
-        "semana": "2026-11-06"
+        "semana": "2026-11-13"
       }
     },
     {
@@ -33,11 +33,11 @@
       "entrada": "2026-10-19",
       "adoptada": false,
       "ancla": {
-        "stop": 590.21,
+        "stop": 605.0,
         "pendiente": 605.0,
         "riesgo": 71.05,
         "break_even": false,
-        "semana": "2026-11-06"
+        "semana": "2026-11-13"
       }
     },
     {
@@ -47,11 +47,11 @@
       "entrada": "2026-10-19",
       "adoptada": false,
       "ancla": {
-        "stop": 384.6493,
+        "stop": 394.0,
         "pendiente": 394.0,
         "riesgo": 44.9776,
         "break_even": false,
-        "semana": "2026-11-06"
+        "semana": "2026-11-13"
       }
     },
     {
@@ -61,11 +61,11 @@
       "entrada": "2026-10-19",
       "adoptada": false,
       "ancla": {
-        "stop": 107.56,
+        "stop": 109.59,
         "pendiente": 109.59,
         "riesgo": 8.44,
         "break_even": true,
-        "semana": "2026-11-06"
+        "semana": "2026-11-13"
       }
     },
     {
@@ -75,11 +75,11 @@
       "entrada": "2026-10-19",
       "adoptada": false,
       "ancla": {
-        "stop": 88.415,
+        "stop": 90.58,
         "pendiente": 90.58,
         "riesgo": 8.35,
         "break_even": false,
-        "semana": "2026-11-06"
+        "semana": "2026-11-13"
       }
     },
     {
@@ -89,11 +89,11 @@
       "entrada": "2026-10-26",
       "adoptada": false,
       "ancla": {
-        "stop": 515.0,
-        "pendiente": 528.84,
+        "stop": 528.84,
+        "pendiente": 544.02,
         "riesgo": 48.06,
-        "break_even": false,
-        "semana": "2026-11-06"
+        "break_even": true,
+        "semana": "2026-11-13"
       }
     },
     {
@@ -103,11 +103,11 @@
       "entrada": "2026-10-26",
       "adoptada": false,
       "ancla": {
-        "stop": 224.77,
-        "pendiente": 229.2965,
+        "stop": 229.2965,
+        "pendiente": 238.7,
         "riesgo": 36.195,
         "break_even": false,
-        "semana": "2026-11-06"
+        "semana": "2026-11-13"
       }
     },
     {
@@ -117,11 +117,11 @@
       "entrada": "2026-11-02",
       "adoptada": false,
       "ancla": {
-        "stop": 1131.21,
-        "pendiente": 1239.1,
+        "stop": 1239.1,
+        "pendiente": 1258.81,
         "riesgo": 262.9,
         "break_even": false,
-        "semana": "2026-11-06"
+        "semana": "2026-11-13"
       }
     },
     {
@@ -131,11 +131,11 @@
       "entrada": "2026-10-30",
       "adoptada": true,
       "ancla": {
-        "stop": 476.578,
-        "pendiente": 496.68,
+        "stop": 496.68,
+        "pendiente": 498.35,
         "riesgo": 43.022,
         "break_even": false,
-        "semana": "2026-11-06"
+        "semana": "2026-11-13"
       }
     }
   ]
